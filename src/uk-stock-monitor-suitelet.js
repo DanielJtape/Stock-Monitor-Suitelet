@@ -207,11 +207,29 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     ['Create WO', woLink, () => '']
   ];
 
+  /** Stable key per column, used for the column chooser, its saved choice and the CSV export. */
+  const colKey = c => c[0].toLowerCase().replace(/%/g, 'pct').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const ALWAYS_SHOWN = 'name';
+
+  /** Column keys to hide, from a comma list; unknown keys and Name are ignored. */
+  function hiddenColumns(value) {
+    const known = new Set(COLUMNS.map(colKey));
+    return [...new Set(String(value || '').split(',').map(k => k.trim()).filter(k => known.has(k) && k !== ALWAYS_SHOWN))];
+  }
+
+  function columnChooser() {
+    const boxes = COLUMNS.filter(c => colKey(c) !== ALWAYS_SHOWN).map(c =>
+      `<label><input type="checkbox" data-key="${esc(colKey(c))}" checked> ${esc(c[0])}</label>`).join('');
+    return `<div class="usm-cols"><button type="button" id="usm-cols-btn">Choose columns &#9662;</button>
+<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a></div></div></div>`;
+  }
+
   function renderTable(rows, settings) {
-    const head = COLUMNS.map((c, i) => `<th data-col="${i}">${esc(c[0])}</th>`).join('');
+    const head = COLUMNS.map((c, i) => `<th data-col="${i}" class="c-${colKey(c)}">${esc(c[0])}</th>`).join('');
     const body = rows.map(r => `<tr class="${r.highlight ? 'usm-' + r.highlight : ''}">${COLUMNS.map((c, i) => {
       const sortValue = c[2](r);
-      return `<td data-sort="${esc(sortValue)}"${NUMERIC.has(c[0]) ? ' class="usm-num"' : c[0] === 'Cover Status' ? ' class="usm-center"' : ''}>${c[1](r)}</td>`;
+      const align = NUMERIC.has(c[0]) ? ' usm-num' : c[0] === 'Cover Status' ? ' usm-center' : '';
+      return `<td data-sort="${esc(sortValue)}" class="c-${colKey(c)}${align}">${c[1](r)}</td>`;
     }).join('')}</tr>`).join('');
     return `
 <style>
@@ -229,12 +247,19 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   .usm-light-green{background:#22c23b}
   .usm-light-amber{background:#ffb000}
   .usm-light-red{background:#c23b22}
+  .usm-cols{position:relative;margin:0 0 8px}
+  .usm-cols button{font-size:12px;padding:3px 10px;cursor:pointer}
+  #usm-cols-box{position:absolute;z-index:10;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.2);padding:8px 12px;margin-top:4px;columns:2;column-gap:24px;font-size:12px}
+  #usm-cols-box label{display:block;white-space:nowrap;padding:2px 0;break-inside:avoid}
+  .usm-cols-actions{padding-top:6px;break-inside:avoid}
   .usm-progress{overflow:hidden;height:16px;width:64px;background:#c23b22;border-radius:4px;box-shadow:inset 0 1px 2px rgba(0,0,0,.1)}
   .usm-bar{float:left;height:100%;font-size:10px;line-height:16px;color:#fff;text-align:center;background:#22c23b;box-shadow:inset 0 -1px 0 rgba(0,0,0,.15)}
 </style>
 <div class="usm-note">${esc(rows.length)} items. Demand ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}
  (${esc(fmt(settings.window.weeks, 1))} weeks): posted item fulfilments plus components consumed by work order completions and issues, in base units.
  Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Cover Status: green = weeks cover at or above ${esc(settings.weeks)} weeks, amber = 50% to 100% of it, red = below 50%. Click a column heading to sort.</div>
+${columnChooser()}
+<style id="usm-hide"></style>
 <div class="usm-wrap"><table class="usm" id="usm"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
 <script>
 (function(){var t=document.getElementById('usm');if(!t)return;var dir={};
@@ -242,13 +267,26 @@ t.querySelectorAll('th').forEach(function(th){th.addEventListener('click',functi
 var rows=[].slice.call(t.tBodies[0].rows);rows.sort(function(a,b){var x=a.cells[i].getAttribute('data-sort'),y=b.cells[i].getAttribute('data-sort');
 var nx=parseFloat(x),ny=parseFloat(y);var c=(!isNaN(nx)&&!isNaN(ny))?nx-ny:String(x).localeCompare(String(y));return dir[i]?c:-c;});
 rows.forEach(function(r){t.tBodies[0].appendChild(r);});});});})();
+(function(){var KEY='usm-hidden-columns',box=document.getElementById('usm-cols-box'),btn=document.getElementById('usm-cols-btn'),style=document.getElementById('usm-hide');
+if(!box||!btn||!style)return;var inputs=[].slice.call(box.querySelectorAll('input[data-key]'));var hidden=[];
+try{hidden=(window.localStorage.getItem(KEY)||'').split(',').filter(Boolean);}catch(e){}
+function apply(){style.textContent=hidden.map(function(k){return 'table.usm .c-'+k+'{display:none}';}).join('');
+inputs.forEach(function(i){i.checked=hidden.indexOf(i.getAttribute('data-key'))<0;});
+try{window.localStorage.setItem(KEY,hidden.join(','));}catch(e){}}
+window.usmHiddenColumns=function(){return hidden.join(',');};
+inputs.forEach(function(i){i.addEventListener('change',function(){hidden=inputs.filter(function(x){return !x.checked;}).map(function(x){return x.getAttribute('data-key');});apply();});});
+btn.addEventListener('click',function(e){e.preventDefault();box.style.display=box.style.display==='none'?'':'none';});
+document.getElementById('usm-cols-all').addEventListener('click',function(e){e.preventDefault();hidden=[];apply();});
+document.addEventListener('click',function(e){if(!box.contains(e.target)&&e.target!==btn)box.style.display='none';});
+apply();})();
 </script>`;
   }
 
-  function toCsv(rows) {
+  function toCsv(rows, hidden = []) {
     const cell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const headers = COLUMNS.slice(0, -1).map(c => c[0]).concat('Location');
-    const lines = rows.map(r => COLUMNS.slice(0, -1).map(c => (c[3] || c[2])(r)).concat(r.location).map(cell).join(','));
+    const cols = COLUMNS.slice(0, -1).filter(c => !hidden.includes(colKey(c)));
+    const headers = cols.map(c => c[0]).concat('Location');
+    const lines = rows.map(r => cols.map(c => (c[3] || c[2])(r)).concat(r.location).map(cell).join(','));
     return [headers.map(cell).join(',')].concat(lines).join('\r\n');
   }
 
@@ -264,6 +302,7 @@ rows.forEach(function(r){t.tBodies[0].appendChild(r);});});});})();
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
       csv: p.custpage_csv === 'T',
+      hidden: hiddenColumns(p.custpage_hide),
       window: demandWindow(new Date(), months)
     };
   }
@@ -287,7 +326,7 @@ rows.forEach(function(r){t.tBodies[0].appendChild(r);});});});})();
     const rows = stock.map(r => evaluate(r, demand[`${r.id}|${r.locationId}`], settings.window, settings.weeks));
 
     if (settings.csv) {
-      response.writeFile({ file: file.create({ name: `uk-stock-monitor-${ymd(settings.window.end)}.csv`, fileType: file.Type.CSV, contents: toCsv(rows) }), isInline: false });
+      response.writeFile({ file: file.create({ name: `uk-stock-monitor-${ymd(settings.window.end)}.csv`, fileType: file.Type.CSV, contents: toCsv(rows, settings.hidden) }), isInline: false });
       return;
     }
 
@@ -306,11 +345,11 @@ rows.forEach(function(r){t.tBodies[0].appendChild(r);});});});})();
     const script = runtime.getCurrentScript();
     const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_csv: 'T' };
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
-    form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}';})` });
+    form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'');})` });
     const html = form.addField({ id: 'custpage_results', type: serverWidget.FieldType.INLINEHTML, label: 'Results' });
     html.defaultValue = renderTable(rows, settings);
     response.writePage(form);
   }
 
-  return { onRequest, _test: { renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });

@@ -82,3 +82,28 @@ test('evaluate carries the cover status and csv labels it without a Type column'
   assert.ok(!head.split(',').includes('Type'));
   assert.ok(line.includes('Amber'));
 });
+
+test('hidden columns accept known keys only and never hide Name', () => {
+  const { hiddenColumns } = exported._test;
+  assert.deepEqual(hiddenColumns('description,name,bogus,weeks-cover,description'), ['description', 'weeks-cover']);
+  assert.deepEqual(hiddenColumns(''), []);
+  assert.deepEqual(hiddenColumns(undefined), []);
+});
+
+test('csv export leaves out hidden columns', () => {
+  const row = evaluate({ id: '1', name: 'A', description: 'Desc', available: 5 }, null, { weeks: 26 }, 6);
+  const head = toCsv([row], ['description', 'cover-status']).split('\r\n')[0].split(',');
+  assert.ok(head.includes('Name') && head.includes('Weeks Cover') && head.includes('Location'));
+  assert.ok(!head.includes('Description') && !head.includes('Cover Status'));
+});
+
+test('every column in the table carries its column key for the chooser', () => {
+  const { renderTable, COLUMNS, colKey } = exported._test;
+  const row = evaluate({ id: '1', name: 'A' }, null, { weeks: 26 }, 6);
+  const html = renderTable([row], { window: { start: new Date(2026, 4, 17), end: new Date(2026, 10, 17), weeks: 26 }, weeks: 6 });
+  for (const c of COLUMNS) {
+    assert.equal(html.split(`class="c-${colKey(c)}`).length - 1, 2, colKey(c));
+    if (colKey(c) !== 'name') assert.ok(html.includes(`data-key="${colKey(c)}"`), colKey(c));
+  }
+  assert.ok(!html.includes('data-key="name"'));
+});

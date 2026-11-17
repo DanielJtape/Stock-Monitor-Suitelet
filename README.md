@@ -16,7 +16,9 @@ Everything the saved search shows except Type (% stocked, % available, preferred
 | Cover Status | Traffic light comparing weeks cover with the recommended cover weeks: green at 100% or more, amber 50% to under 100%, red under 50%. Blank when there was no demand in the window |
 | Shortfall to Recommended | Recommended minus (available + on order), never below 0 |
 
-Filters: demand history in months (default 6, 1-24), cover weeks (default 6, 1-52), and JTAPE Product? (All / Yes / No). Export CSV downloads the same rows. Column headings sort the table.
+Filters: demand history in months (default 6, 1-24), cover weeks (default 6, 1-52), and JTAPE Product? (All / Yes / No). Export CSV downloads the same rows and leaves out any hidden columns.
+
+Choose columns (above the table) shows or hides any column except Name straight away, without re-running the search. The choice is saved in the browser, so each person keeps their own layout on that computer; Show all restores every column. Column headings sort the table.
 
 Row colours: orange = Special Work Order Item; yellow = available + on order at or below the replenish level with nothing on order; light green = at or below the replenish level but work orders are open. Adjust in `evaluate()` if the saved search's yellow/green rules differ.
 
