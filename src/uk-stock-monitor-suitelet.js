@@ -47,6 +47,16 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return Math.round((num(part) / w) * 1000) / 10;
   }
 
+  /**
+   * Traffic light for weeks cover against the recommended cover weeks: green at 100% or more, amber from 50%
+   * up to 100%, red below 50%. No demand in the window gives no light (cover cannot be measured).
+   */
+  function coverStatus(available, avgWeekly, coverWeeks) {
+    if (!(avgWeekly > 0) || !(coverWeeks > 0)) return '';
+    const ratio = num(available) / avgWeekly / coverWeeks;
+    return ratio >= 1 ? 'green' : ratio >= 0.5 ? 'amber' : 'red';
+  }
+
   /** Adds demand, recommended stockholding and the derived columns to one stock row. */
   function evaluate(row, demand, window, coverWeeks) {
     const fulfilled = num(demand && demand.fulfilled);
@@ -62,6 +72,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
       avgWeekly: Math.round(avgWeekly * 10) / 10,
       recommended,
       weeksCover: avgWeekly > 0 ? Math.round((num(row.available) / avgWeekly) * 10) / 10 : null,
+      coverStatus: coverStatus(row.available, avgWeekly, coverWeeks),
       shortfall: Math.max(0, recommended - position),
       vsPreferred: recommended - num(row.preferred),
       pctStocked: percent(row.onHand, row.preferred),
@@ -166,6 +177,13 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return `<a target="_blank" href="/app/accounting/transactions/workord.nl?assemblyitem=${encodeURIComponent(row.id)}&quantity=${encodeURIComponent(row.replenish)}&whence=">Create WO</a>`;
   }
 
+  const LIGHT_ORDER = { red: 0, amber: 1, green: 2, '': 3 };
+  const LIGHT_LABEL = { red: 'Red', amber: 'Amber', green: 'Green', '': '' };
+  const LIGHT_TITLE = { red: 'Below 50% of recommended cover', amber: '50% to 100% of recommended cover', green: 'At or above recommended cover' };
+  const light = status => (status ? `<span class="usm-light usm-light-${status}" title="${esc(LIGHT_TITLE[status])}"></span>` : '');
+  const NUMERIC = new Set(['Preferred Stock', 'Replenish Level', 'Current Stock', 'Committed', 'Available', "WO's", 'Qty to Replenish', 'Fulfilled',
+    'WO Consumed', 'Avg Weekly Demand', 'Recommended Stock', 'Recommended vs Preferred', 'Weeks Cover', 'Shortfall to Recommended']);
+
   const COLUMNS = [
     ['Name', r => `<a target="_blank" href="/app/common/item/item.nl?id=${encodeURIComponent(r.id)}">${esc(r.name)}</a>`, r => r.name],
     ['Description', r => esc(r.description), r => r.description],
@@ -184,8 +202,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     ['Recommended Stock', r => blank(r.recommended), r => r.recommended],
     ['Recommended vs Preferred', r => (r.vsPreferred > 0 ? '+' : '') + fmt(r.vsPreferred), r => r.vsPreferred],
     ['Weeks Cover', r => (r.weeksCover == null ? '' : fmt(r.weeksCover, 1)), r => (r.weeksCover == null ? 99999 : r.weeksCover), r => (r.weeksCover == null ? '' : r.weeksCover)],
+    ['Cover Status', r => light(r.coverStatus), r => LIGHT_ORDER[r.coverStatus], r => LIGHT_LABEL[r.coverStatus]],
     ['Shortfall to Recommended', r => blank(r.shortfall), r => r.shortfall],
-    ['Type', r => esc(r.type), r => r.type],
     ['Create WO', woLink, () => '']
   ];
 
@@ -193,7 +211,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     const head = COLUMNS.map((c, i) => `<th data-col="${i}">${esc(c[0])}</th>`).join('');
     const body = rows.map(r => `<tr class="${r.highlight ? 'usm-' + r.highlight : ''}">${COLUMNS.map((c, i) => {
       const sortValue = c[2](r);
-      return `<td data-sort="${esc(sortValue)}"${i > 3 && i < 18 ? ' class="usm-num"' : ''}>${c[1](r)}</td>`;
+      return `<td data-sort="${esc(sortValue)}"${NUMERIC.has(c[0]) ? ' class="usm-num"' : c[0] === 'Cover Status' ? ' class="usm-center"' : ''}>${c[1](r)}</td>`;
     }).join('')}</tr>`).join('');
     return `
 <style>
@@ -206,12 +224,17 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   tr.usm-special td,tr.usm-special a{background:#ff9900;color:#c00}
   tr.usm-replenish td,tr.usm-replenish a{background:#ffff66;color:#c00}
   tr.usm-covered td,tr.usm-covered a{background:#ccee99;color:#c00}
-  .usm-progress{overflow:hidden;height:18px;width:120px;background:#c23b22;border-radius:4px;box-shadow:inset 0 1px 2px rgba(0,0,0,.1)}
-  .usm-bar{float:left;height:100%;font-size:11px;line-height:18px;color:#fff;text-align:center;background:#22c23b;box-shadow:inset 0 -1px 0 rgba(0,0,0,.15)}
+  table.usm td.usm-center{text-align:center}
+  .usm-light{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.35);vertical-align:middle}
+  .usm-light-green{background:#22c23b}
+  .usm-light-amber{background:#ffb000}
+  .usm-light-red{background:#c23b22}
+  .usm-progress{overflow:hidden;height:16px;width:64px;background:#c23b22;border-radius:4px;box-shadow:inset 0 1px 2px rgba(0,0,0,.1)}
+  .usm-bar{float:left;height:100%;font-size:10px;line-height:16px;color:#fff;text-align:center;background:#22c23b;box-shadow:inset 0 -1px 0 rgba(0,0,0,.15)}
 </style>
 <div class="usm-note">${esc(rows.length)} items. Demand ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}
  (${esc(fmt(settings.window.weeks, 1))} weeks): posted item fulfilments plus components consumed by work order completions and issues, in base units.
- Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Click a column heading to sort.</div>
+ Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Cover Status: green = weeks cover at or above ${esc(settings.weeks)} weeks, amber = 50% to 100% of it, red = below 50%. Click a column heading to sort.</div>
 <div class="usm-wrap"><table class="usm" id="usm"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
 <script>
 (function(){var t=document.getElementById('usm');if(!t)return;var dir={};
@@ -289,5 +312,5 @@ rows.forEach(function(r){t.tBodies[0].appendChild(r);});});});})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });

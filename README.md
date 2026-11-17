@@ -3,7 +3,7 @@
 `src/uk-stock-monitor-suitelet.js` is a read-only Suitelet that reproduces the **UK Stock Monitor** saved search (customsearch1983) and adds demand-based stockholding. It never creates or changes records; the Create WO link opens a new work order form for a person to complete, as the saved search does.
 
 ## What it shows
-Everything the saved search shows (% stocked, % available, preferred stock, replenish level, current, committed, available, WO's, qty to replenish, type, Create WO), plus:
+Everything the saved search shows except Type (% stocked, % available, preferred stock, replenish level, current, committed, available, WO's, qty to replenish, Create WO), plus:
 
 | Column | Meaning |
 | --- | --- |
@@ -13,6 +13,7 @@ Everything the saved search shows (% stocked, % available, preferred stock, repl
 | Recommended Stock | Avg weekly demand x cover weeks (default 6), rounded up |
 | Recommended vs Preferred | Recommended minus the current preferred stock level, to show where preferred levels look too high or low |
 | Weeks Cover | Available / avg weekly demand |
+| Cover Status | Traffic light comparing weeks cover with the recommended cover weeks: green at 100% or more, amber 50% to under 100%, red under 50%. Blank when there was no demand in the window |
 | Shortfall to Recommended | Recommended minus (available + on order), never below 0 |
 
 Filters: demand history in months (default 6, 1-24), cover weeks (default 6, 1-52), and JTAPE Product? (All / Yes / No). Export CSV downloads the same rows. Column headings sort the table.

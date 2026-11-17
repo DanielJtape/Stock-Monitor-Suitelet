@@ -62,3 +62,23 @@ test('form inputs are clamped to safe ranges', () => {
   assert.equal(clampInt('0', 1, 24, 6), 6);
   assert.equal(clampInt('abc', 1, 24, 6), 6);
 });
+
+test('cover status is green at or above recommended cover, amber from half, red below half', () => {
+  const { coverStatus } = exported._test;
+  assert.equal(coverStatus(60, 10, 6), 'green');
+  assert.equal(coverStatus(90, 10, 6), 'green');
+  assert.equal(coverStatus(59, 10, 6), 'amber');
+  assert.equal(coverStatus(30, 10, 6), 'amber');
+  assert.equal(coverStatus(29, 10, 6), 'red');
+  assert.equal(coverStatus(-5, 10, 6), 'red');
+  assert.equal(coverStatus(100, 0, 6), '');
+});
+
+test('evaluate carries the cover status and csv labels it without a Type column', () => {
+  const row = evaluate({ id: '1', name: 'A', available: 40, type: 'Assembly' }, { fulfilled: 260, consumed: 0 }, { weeks: 26 }, 6);
+  assert.equal(row.coverStatus, 'amber');
+  const [head, line] = toCsv([row]).split('\r\n');
+  assert.ok(head.includes('Cover Status'));
+  assert.ok(!head.split(',').includes('Type'));
+  assert.ok(line.includes('Amber'));
+});
