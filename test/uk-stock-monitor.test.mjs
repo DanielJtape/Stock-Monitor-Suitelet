@@ -107,3 +107,26 @@ test('every column in the table carries its column key for the chooser', () => {
   }
   assert.ok(!html.includes('data-key="name"'));
 });
+
+test('excluded customers accept internal IDs only, from comma or multiselect lists', () => {
+  const { excludedCustomers } = exported._test;
+  assert.deepEqual(excludedCustomers('12,34\u000556, 12'), ['12', '34', '56']);
+  assert.deepEqual(excludedCustomers("1) OR 1=1 --,0,abc,07"), []);
+  assert.deepEqual(excludedCustomers(undefined), []);
+});
+
+test('demand query is unchanged without exclusions', () => {
+  const { demandSql } = exported._test;
+  const { sql } = demandSql(['1'], []);
+  assert.ok(!sql.includes('wo.entity') && !sql.includes('t.entity'));
+  assert.ok(sql.includes('tl.location IN (1)'));
+});
+
+test('demand query excludes customers on fulfilments and on the work order behind completions and issues', () => {
+  const { demandSql } = exported._test;
+  const { sql } = demandSql(['1', '1', '5'], ['101', 'x', '202']);
+  assert.ok(sql.includes("NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (101,202))"));
+  assert.ok(sql.includes("NOT (t.type IN ('WOCompl', 'WOIssue') AND NVL(wo.entity, 0) IN (101,202))"));
+  assert.ok(sql.includes("hdr.mainline = 'T'") && sql.includes("wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'"));
+  assert.ok(sql.includes('tl.location IN (1,5)'));
+});

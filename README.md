@@ -18,6 +18,11 @@ Everything the saved search shows except Type (% stocked, % available, preferred
 
 Filters: demand history in months (default 6, 1-24), cover weeks (default 6, 1-52), and JTAPE Product? (All / Yes / No). Export CSV downloads the same rows and leaves out any hidden columns.
 
+Exclude customers from demand (multi-select) leaves chosen customers out of Fulfilled, WO Consumed, average weekly demand and everything calculated from them. Stock columns are not affected. The page notes how many customers are excluded, and the choice is kept in the page address, so a bookmarked link keeps it.
+- Item fulfilments are excluded when the fulfilment's customer is selected.
+- Work order completions and issues are excluded when the work order they were created from has a selected customer. Work orders with no customer (stock builds) always count, even if the finished goods are later sold to an excluded customer.
+- Only the exact customers chosen are excluded, not their sub-customers.
+
 Choose columns (above the table) shows or hides any column except Name straight away, without re-running the search. The choice is saved in the browser, so each person keeps their own layout on that computer; Show all restores every column. Column headings sort the table.
 
 Row colours: orange = Special Work Order Item; yellow = available + on order at or below the replenish level with nothing on order; light green = at or below the replenish level but work orders are open. Adjust in `evaluate()` if the saved search's yellow/green rules differ.
@@ -40,6 +45,7 @@ Row colours: orange = Special Work Order Item; yellow = available + on order at 
 - For one finished good, compare Fulfilled with a transaction search of shipped item fulfilment lines in the window.
 - For one sub-assembly (e.g. 1013.1350 4.8m Interim Roll), compare WO Consumed with completion/issue component lines in the window.
 - For an item with a non-base stock unit (e.g. Z9403, stocked in LM, base Sqm), confirm the demand total is in base units like Current Stock. If SuiteQL returns transaction units, convert in `demandByItem`.
+- With a customer excluded, check that a work order completion for that customer's work order no longer counts (the link from completion to work order uses the completion's Created From).
 - Confirm the run stays within Suitelet governance with the full item list (one paged search plus one paged SuiteQL query).
 
 ## Tests

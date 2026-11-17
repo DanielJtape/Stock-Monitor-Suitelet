@@ -130,28 +130,52 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return rows;
   }
 
+  const RECORD_ID = /^[1-9]\d{0,9}$/;
+  const MAX_EXCLUDED = 500;
+
+  /** Customer internal IDs to leave out of demand, from a comma or multiselect (\u0005) separated list. */
+  function excludedCustomers(value) {
+    return [...new Set(String(value || '').split(/[\u0005,\s]+/).filter(id => RECORD_ID.test(id)))].slice(0, MAX_EXCLUDED);
+  }
+
   /**
-   * Demand per item|location in base units. Fulfilment lines count in full; for completions and issues
-   * only negative (consumed) component lines count, so the assembly being built is never demand for itself.
-   * Only posting, non-voided transactions count (picked/packed fulfilments are excluded).
+   * SuiteQL for demand. Excluded customers are matched on the fulfilment's customer for item fulfilments and on
+   * the work order's customer for completions and issues (found through the transaction's Created From). IDs
+   * are validated integers before they are written into the query.
    */
-  function demandByItem(locationIds, window) {
-    const result = {};
-    const locs = [...new Set(locationIds)].filter(id => /^[1-9]\d{0,9}$/.test(String(id)));
-    if (!locs.length) return result;
-    const sql = `
+  function demandSql(locationIds, excluded = []) {
+    const locs = [...new Set(locationIds.map(String))].filter(id => RECORD_ID.test(id));
+    const customers = excludedCustomers(excluded.join(','));
+    const exclusion = customers.length ? `
+        AND NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (${customers.join(',')}))
+        AND NOT (t.type IN ('WOCompl', 'WOIssue') AND NVL(wo.entity, 0) IN (${customers.join(',')}))` : '';
+    const joins = customers.length ? `
+      LEFT JOIN transactionline hdr ON hdr.transaction = t.id AND hdr.mainline = 'T'
+      LEFT JOIN transaction wo ON wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'` : '';
+    return { locs, sql: `
       SELECT tl.item AS item, tl.location AS location, t.type AS type,
              SUM(CASE WHEN t.type = 'ItemShip' THEN ABS(tl.quantity) ELSE -tl.quantity END) AS qty
       FROM transactionline tl
-      JOIN transaction t ON t.id = tl.transaction
+      JOIN transaction t ON t.id = tl.transaction${joins}
       WHERE t.type IN ('ItemShip', 'WOCompl', 'WOIssue')
         AND t.trandate >= TO_DATE(?, 'YYYY-MM-DD') AND t.trandate <= TO_DATE(?, 'YYYY-MM-DD')
         AND t.posting = 'T' AND t.voided = 'F'
         AND tl.mainline = 'F'
         AND tl.itemtype IN ('InvtPart', 'Assembly')
         AND tl.location IN (${locs.join(',')})
-        AND (t.type = 'ItemShip' OR tl.quantity < 0)
-      GROUP BY tl.item, tl.location, t.type`;
+        AND (t.type = 'ItemShip' OR tl.quantity < 0)${exclusion}
+      GROUP BY tl.item, tl.location, t.type` };
+  }
+
+  /**
+   * Demand per item|location in base units. Fulfilment lines count in full; for completions and issues
+   * only negative (consumed) component lines count, so the assembly being built is never demand for itself.
+   * Only posting, non-voided transactions count (picked/packed fulfilments are excluded).
+   */
+  function demandByItem(locationIds, window, excluded) {
+    const result = {};
+    const { locs, sql } = demandSql(locationIds, excluded);
+    if (!locs.length) return result;
     const paged = query.runSuiteQLPaged({ query: sql, params: [ymd(window.start), ymd(window.end)], pageSize: 1000 });
     paged.pageRanges.forEach(range => {
       paged.fetch({ index: range.index }).data.asMappedResults().forEach(r => {
@@ -256,7 +280,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   .usm-bar{float:left;height:100%;font-size:10px;line-height:16px;color:#fff;text-align:center;background:#22c23b;box-shadow:inset 0 -1px 0 rgba(0,0,0,.15)}
 </style>
 <div class="usm-note">${esc(rows.length)} items. Demand ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}
- (${esc(fmt(settings.window.weeks, 1))} weeks): posted item fulfilments plus components consumed by work order completions and issues, in base units.
+ (${esc(fmt(settings.window.weeks, 1))} weeks): posted item fulfilments plus components consumed by work order completions and issues, in base units.${settings.excluded && settings.excluded.length ? ` <b>Excluding ${esc(settings.excluded.length)} customer${settings.excluded.length === 1 ? '' : 's'}</b> (their fulfilments and work orders).` : ''}
  Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Cover Status: green = weeks cover at or above ${esc(settings.weeks)} weeks, amber = 50% to 100% of it, red = below 50%. Click a column heading to sort.</div>
 ${columnChooser()}
 <style id="usm-hide"></style>
@@ -301,6 +325,7 @@ apply();})();
       months,
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
+      excluded: excludedCustomers(p.custpage_exclude),
       csv: p.custpage_csv === 'T',
       hidden: hiddenColumns(p.custpage_hide),
       window: demandWindow(new Date(), months)
@@ -315,14 +340,14 @@ apply();})();
       redirect.toSuitelet({
         scriptId: script.id,
         deploymentId: script.deploymentId,
-        parameters: { custpage_months: p.custpage_months, custpage_weeks: p.custpage_weeks, custpage_jtape: p.custpage_jtape || '' }
+        parameters: { custpage_months: p.custpage_months, custpage_weeks: p.custpage_weeks, custpage_jtape: p.custpage_jtape || '', custpage_exclude: excludedCustomers(p.custpage_exclude).join(',') }
       });
       return;
     }
 
     const settings = settingsFrom(request);
     const stock = stockRows(settings, settings.jtape);
-    const demand = demandByItem(stock.map(r => r.locationId), settings.window);
+    const demand = demandByItem(stock.map(r => r.locationId), settings.window, settings.excluded);
     const rows = stock.map(r => evaluate(r, demand[`${r.id}|${r.locationId}`], settings.window, settings.weeks));
 
     if (settings.csv) {
@@ -341,9 +366,12 @@ apply();})();
     jtape.addSelectOption({ value: 'T', text: 'Yes' });
     jtape.addSelectOption({ value: 'F', text: 'No' });
     jtape.defaultValue = settings.jtape;
+    const exclude = form.addField({ id: 'custpage_exclude', type: serverWidget.FieldType.MULTISELECT, label: 'Exclude customers from demand', source: 'customer', container: 'custpage_filters' });
+    exclude.setHelpText({ help: 'Fulfilments to these customers, and work orders for these customers, are left out of average weekly demand and the recommended stock.' });
+    if (settings.excluded.length) exclude.defaultValue = settings.excluded;
     form.addSubmitButton({ label: 'Refresh' });
     const script = runtime.getCurrentScript();
-    const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_csv: 'T' };
+    const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_exclude: settings.excluded.join(','), custpage_csv: 'T' };
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
     form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'');})` });
     const html = form.addField({ id: 'custpage_results', type: serverWidget.FieldType.INLINEHTML, label: 'Results' });
@@ -351,5 +379,5 @@ apply();})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });
