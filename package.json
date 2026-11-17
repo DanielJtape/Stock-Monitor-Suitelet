@@ -1,0 +1,8 @@
+{
+  "name": "stock-monitor-suitelet",
+  "private": true,
+  "description": "UK Stock Monitor NetSuite Suitelet with weekly demand and recommended stockholding",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}
