@@ -32,7 +32,7 @@ Row colours: orange = Special Work Order Item; yellow = available + on order at 
 ## Rules
 - Stock rows come from the saved search itself (`search.load`), so its criteria remain the single definition of which items appear. The Suitelet replaces only the columns.
 - Demand is per item and per the row's inventory location. Only posting, non-voided transactions count, so picked or packed fulfilments that are not shipped are excluded.
-- Only lines taking stock out (negative quantity) count, on fulfilments, completions and issues alike, so an assembly's own output is never counted as its demand. Cost of goods sold lines, which repeat the item on a fulfilment, are never counted. Finished goods get demand from fulfilments; sub-assemblies such as interim rolls get demand from the work orders that consume them. An item that is both sold and consumed gets both.
+- Only lines taking stock out (negative quantity) count, on fulfilments, completions and issues alike, so an assembly's own output is never counted as its demand. Cost of goods sold lines, which repeat the item on a fulfilment, are never counted. An item fulfilment has no separate header line in SuiteQL: its main line is its first item line, so it counts; on completions and issues the main line is the header and never counts. Finished goods get demand from fulfilments; sub-assemblies such as interim rolls get demand from the work orders that consume them. An item that is both sold and consumed gets both.
 - Transfer order fulfilments out of the location count as demand (they are item fulfilments).
 - Quantities are SuiteQL `transactionline.quantity`, expected in base units like the location quantity columns.
 

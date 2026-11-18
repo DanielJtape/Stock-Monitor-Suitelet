@@ -141,18 +141,19 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   const DEMAND_TYPES = `t.type IN ('ItemShip', 'WOCompl', 'WOIssue')`;
   const BASE_FILTERS = `${DEMAND_TYPES}
         AND t.trandate >= TO_DATE(?, 'YYYY-MM-DD') AND t.trandate <= TO_DATE(?, 'YYYY-MM-DD')
-        AND t.posting = 'T' AND t.voided = 'F'
-        AND tl.mainline = 'F'`;
+        AND t.posting = 'T' AND t.voided = 'F'`;
   /**
    * Which lines count as demand. Only stock leaving the location counts (negative quantity): the item line
    * on a fulfilment and component lines on completions and issues, never the assembly a completion adds.
    * Cost of goods sold lines repeat the item on fulfilments and are never counted. Excluded customers are
    * matched on the fulfilment's customer, and on the work order's customer for completions and issues.
    * No joins: the work order customer is checked with a subquery, so a join can never drop lines.
+   * An item fulfilment has no separate header line: its main line is its first item line, so main lines count
+   * for fulfilments. For completions and issues the main line is the transaction header and never counts.
    */
   function countedSql(customers) {
     const list = customers.join(',');
-    return `tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F'${customers.length ? `
+    return `tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F' AND (tl.mainline = 'F' OR t.type = 'ItemShip')${customers.length ? `
         AND NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (${list}))
         AND NOT (t.type IN ('WOCompl', 'WOIssue') AND t.id IN (
           SELECT h.transaction FROM transactionline h, transaction w
@@ -186,7 +187,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return `
       SELECT t.id AS tranid_internal, t.tranid AS tranid, t.type AS type, TO_CHAR(t.trandate, 'YYYY-MM-DD') AS trandate,
              BUILTIN.DF(tl.item) AS itemname, BUILTIN.DF(t.entity) AS customer, NVL(t.entity, 0) AS customerid,
-             tl.id AS lineid, tl.quantity AS quantity, NVL(tl.iscogs, 'F') AS iscogs,
+             tl.id AS lineid, tl.quantity AS quantity, NVL(tl.iscogs, 'F') AS iscogs, tl.mainline AS mainline,
              CASE WHEN ${countedSql(customers)} THEN 1 ELSE 0 END AS counted
       FROM transactionline tl
       JOIN transaction t ON t.id = tl.transaction
@@ -219,6 +220,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   function lineReason(line, excluded = []) {
     if (num(line.counted) === 1) return 'Counted';
     if (line.iscogs === 'T') return 'Cost of goods line (duplicate of the item line)';
+    if (line.mainline === 'T' && line.type !== 'ItemShip') return 'Main line of the work order transaction';
     if (num(line.quantity) >= 0) return line.type === 'ItemShip' ? 'Not stock out (positive quantity)' : 'Output or stock in, not consumption';
     const customer = String(line.type === 'ItemShip' ? line.customerid : line.wocustomerid);
     if (excluded.includes(customer)) return 'Excluded customer';
@@ -272,7 +274,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
       const customer = l.type === 'ItemShip' ? l.customer : l.wocustomer;
       return `<tr class="${counted ? '' : 'usm-skip'}"><td>${esc(l.trandate)}</td><td>${esc(TYPE_LABEL[l.type] || l.type)}</td>
 <td><a target="_blank" href="/app/accounting/transactions/transaction.nl?id=${encodeURIComponent(l.tranid_internal)}">${esc(l.tranid)}</a></td>
-<td>${esc(l.createdfrom)}</td><td>${esc(customer)}</td><td class="usm-num">${esc(fmt(l.quantity, 2))}</td><td>${l.iscogs === 'T' ? 'Yes' : ''}</td>
+<td>${esc(l.createdfrom)}</td><td>${esc(customer)}</td><td class="usm-num">${esc(fmt(l.quantity, 2))}</td><td>${l.mainline === 'T' ? 'Yes' : ''}</td><td>${l.iscogs === 'T' ? 'Yes' : ''}</td>
 <td class="usm-num">${counted ? esc(fmt(counted, 2)) : ''}</td><td>${esc(lineReason(l, settings.excluded))}</td></tr>`;
     }).join('');
     return `
@@ -293,7 +295,7 @@ ${main && (Math.abs(num(main.fulfilled) - fulfilled) > 0.0001 || Math.abs(num(ma
     ? `<div class="usm-warn">These lines do not add up to the main list (Fulfilled ${esc(fmt(main.fulfilled, 2))}, WO Consumed ${esc(fmt(main.consumed, 2))}). Please report this.</div>`
     : `<div class="usm-note">Matches the main list.</div>`}
 ${sourcesFailed ? '<div class="usm-warn">Created From and work order customers could not be read; the figures are unaffected.</div>' : ''}
-<div class="usm-wrap"><table class="usm"><thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Created From</th><th>Customer</th><th>Line Quantity</th><th>COGS Line</th><th>Counted</th><th>Reason</th></tr></thead>
+<div class="usm-wrap"><table class="usm"><thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Created From</th><th>Customer</th><th>Line Quantity</th><th>Main Line</th><th>COGS Line</th><th>Counted</th><th>Reason</th></tr></thead>
 <tbody>${body}</tbody></table></div>`;
   }
 

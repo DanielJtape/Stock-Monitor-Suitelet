@@ -173,7 +173,7 @@ test('drill-down lists lines with the same source and filters as the main figure
     const trace = traceSql('42', '1', excluded);
     const from = q => { const i = q.indexOf('FROM transactionline tl'); return q.slice(i, q.indexOf('WHERE', i)); };
     assert.equal(from(trace), from(main));
-    for (const part of ["t.posting = 'T'", "tl.mainline = 'F'", "tl.itemtype IN ('InvtPart', 'Assembly')", 'tl.item = 42']) {
+    for (const part of ["t.posting = 'T'", "(tl.mainline = 'F' OR t.type = 'ItemShip')", "tl.itemtype IN ('InvtPart', 'Assembly')", 'tl.item = 42']) {
       assert.ok(main.includes(part) && trace.includes(part), part);
     }
   }
@@ -193,4 +193,11 @@ test('drill-down warns when its lines do not add up to the main list', () => {
   const lines = [{ type: 'ItemShip', quantity: -10, iscogs: 'F', counted: 1, tranid: 'IF1' }];
   assert.ok(renderTrace(lines, settings, '42', { fulfilled: 10, consumed: 0 }).includes('Matches the main list'));
   assert.ok(renderTrace(lines, settings, '42', { fulfilled: 657, consumed: 0 }).includes('do not add up to the main list'));
+});
+
+test('a fulfilment main line is its first item line and counts; work order main lines never count', () => {
+  const { countedSql, lineReason } = exported._test;
+  assert.ok(countedSql([]).includes("(tl.mainline = 'F' OR t.type = 'ItemShip')"));
+  assert.equal(lineReason({ counted: 0, iscogs: 'F', mainline: 'T', quantity: -2, type: 'WOIssue' }), 'Main line of the work order transaction');
+  assert.equal(lineReason({ counted: 1, iscogs: 'F', mainline: 'T', quantity: -80, type: 'ItemShip' }), 'Counted');
 });
