@@ -499,6 +499,7 @@ fit();window.addEventListener('resize',fit);window.addEventListener('load',fit);
   table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:2;box-shadow:0 1px 0 #ccc}
   table.usm td{padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap}
   table.usm td.usm-num{text-align:right}
+  table.usm tbody tr:hover td{box-shadow:inset 0 0 0 9999px rgba(42,120,214,.10)}
   tr.usm-skip td{color:#999}
   .usm-note{margin:6px 0 10px;font-size:13px}
   .usm-filter{margin:6px 0 10px;font-size:13px}
@@ -593,6 +594,7 @@ ${FIT_SCRIPT}
   table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;cursor:pointer;white-space:nowrap;position:sticky;top:0;z-index:2;box-shadow:0 1px 0 #ccc}
   table.usm td{padding:4px 6px;border-bottom:1px solid #eee;white-space:nowrap}
   table.usm td.usm-num{text-align:right}
+  table.usm tbody tr:hover td{box-shadow:inset 0 0 0 9999px rgba(42,120,214,.10)}
   tr.usm-special td,tr.usm-special a{background:#ff9900;color:#c00}
   tr.usm-replenish td,tr.usm-replenish a{background:#ffff66;color:#c00}
   tr.usm-covered td,tr.usm-covered a{background:#ccee99;color:#c00}
