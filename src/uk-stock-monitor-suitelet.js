@@ -7,7 +7,9 @@
  * lines) and work order issues at the same location over the look-back period (default 6 months).
  *
  * Item fields: custitem_isjtape ("JTAPE Product?" filter) and isspecialworkorderitem ("Special Work Order
- * Item", orange rows). Optional script parameter custscript_usm_search overrides the saved search ID.
+ * Item", orange rows). Optional script parameters: custscript_usm_search overrides the saved search ID;
+ * custscript_usm_exclude_customers (Multiple Select, list Customer) is the customers excluded from demand
+ * when the page first opens. Viewers can change the exclusion on the form.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
@@ -132,6 +134,14 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
 
   const RECORD_ID = /^[1-9]\d{0,9}$/;
   const MAX_EXCLUDED = 500;
+
+  /**
+   * Customers excluded from demand: the viewer's choice once they have submitted the form (custpage_exset=T),
+   * even if they cleared it, otherwise the deployment's default from the script parameter.
+   */
+  function chosenExclusions(params, defaultValue) {
+    return params.custpage_exset === 'T' ? excludedCustomers(params.custpage_exclude) : excludedCustomers(Array.isArray(defaultValue) ? defaultValue.join(',') : defaultValue);
+  }
 
   /** Customer internal IDs to leave out of demand, from a comma or multiselect (\u0005) separated list. */
   function excludedCustomers(value) {
@@ -499,7 +509,7 @@ apply();})();
       months,
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
-      excluded: excludedCustomers(p.custpage_exclude),
+      excluded: chosenExclusions(p, script.getParameter({ name: 'custscript_usm_exclude_customers' })),
       traceType: ['fulfilled', 'consumed', 'completion', 'issue'].includes(p.custpage_ttype) ? p.custpage_ttype : '',
       traceItem: RECORD_ID.test(String(p.custpage_trace || '')) ? String(p.custpage_trace) : '',
       traceLocation: RECORD_ID.test(String(p.custpage_loc || '')) ? String(p.custpage_loc) : '',
@@ -518,7 +528,7 @@ apply();})();
       redirect.toSuitelet({
         scriptId: script.id,
         deploymentId: script.deploymentId,
-        parameters: { custpage_months: p.custpage_months, custpage_weeks: p.custpage_weeks, custpage_jtape: p.custpage_jtape || '', custpage_exclude: excludedCustomers(p.custpage_exclude).join(',') }
+        parameters: { custpage_months: p.custpage_months, custpage_weeks: p.custpage_weeks, custpage_jtape: p.custpage_jtape || '', custpage_exclude: excludedCustomers(p.custpage_exclude).join(','), custpage_exset: 'T' }
       });
       return;
     }
@@ -526,7 +536,7 @@ apply();})();
     const settings = settingsFrom(request);
     const script = runtime.getCurrentScript();
     const base = `/app/site/hosting/scriptlet.nl?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}`
-      + `&custpage_months=${settings.months}&custpage_exclude=${encodeURIComponent(settings.excluded.join(','))}`;
+      + `&custpage_months=${settings.months}&custpage_exclude=${encodeURIComponent(settings.excluded.join(','))}&custpage_exset=T`;
 
     if (settings.traceItem && settings.traceLocation) {
       const dates = [ymd(settings.window.start), ymd(settings.window.end)];
@@ -577,7 +587,7 @@ apply();})();
     exclude.setHelpText({ help: 'Fulfilments to these customers, and work orders for these customers, are left out of average weekly demand and the recommended stock.' });
     if (settings.excluded.length) exclude.defaultValue = settings.excluded;
     form.addSubmitButton({ label: 'Refresh' });
-    const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_exclude: settings.excluded.join(','), custpage_csv: 'T' };
+    const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_exclude: settings.excluded.join(','), custpage_exset: 'T', custpage_csv: 'T' };
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
     form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'')+(window.usmColumnOrder?'&custpage_order='+encodeURIComponent(window.usmColumnOrder()):'');})` });
     const html = form.addField({ id: 'custpage_results', type: serverWidget.FieldType.INLINEHTML, label: 'Results' });
@@ -585,5 +595,5 @@ apply();})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { chosenExclusions, DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });

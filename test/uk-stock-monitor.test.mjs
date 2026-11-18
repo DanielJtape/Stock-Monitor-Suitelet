@@ -252,3 +252,13 @@ test('default layout matches the agreed column order and hidden columns', () => 
   assert.ok(html.includes(`var DEFAULT=${JSON.stringify(DEFAULT_HIDDEN)}`));
   assert.ok(html.includes('Restore default layout'));
 });
+
+test('default excluded customers apply until the viewer submits their own choice, even an empty one', () => {
+  const { chosenExclusions } = exported._test;
+  assert.deepEqual(chosenExclusions({}, '101,202'), ['101', '202']);
+  assert.deepEqual(chosenExclusions({}, ['101', '202']), ['101', '202']);
+  assert.deepEqual(chosenExclusions({}, '101\u0005202'), ['101', '202']);
+  assert.deepEqual(chosenExclusions({}, null), []);
+  assert.deepEqual(chosenExclusions({ custpage_exset: 'T', custpage_exclude: '303' }, '101'), ['303']);
+  assert.deepEqual(chosenExclusions({ custpage_exset: 'T', custpage_exclude: '' }, '101'), []);
+});

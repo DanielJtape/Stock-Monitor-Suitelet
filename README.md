@@ -44,7 +44,9 @@ Row colours: orange = Special Work Order Item; yellow = available + on order at 
 
 ## Deployment (sandbox first)
 1. Upload the file to the File Cabinet (SuiteScripts) and create a Suitelet script record from it.
-2. Optional script parameter `custscript_usm_search` (free-form text) overrides the saved search ID; default `customsearch1983`. The item fields are fixed in the script: `custitem_isjtape` (JTAPE Product? filter) and `isspecialworkorderitem` (Special Work Order Item, orange rows).
+2. Optional script parameters on the script record (Parameters subtab):
+   - `custscript_usm_search` (Free-Form Text): overrides the saved search ID; default `customsearch1983`.
+   - `custscript_usm_exclude_customers` (Multiple Select, List/Record: Customer): customers excluded from demand when the page opens. Set the values on the deployment (or as the parameter default). Viewers can still change or clear the exclusion on the form; their choice then applies until they reopen the page from the menu. The item fields are fixed in the script: `custitem_isjtape` (JTAPE Product? filter) and `isspecialworkorderitem` (Special Work Order Item, orange rows).
 3. Deploy with the roles that use the saved search today; it needs Items, Find Transaction, SuiteQL access and the saved search to be public or shared with those roles.
 4. Add it to a centre tab or a shortcut.
 
