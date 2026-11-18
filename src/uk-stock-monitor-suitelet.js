@@ -8,8 +8,8 @@
  *
  * Item fields: custitem_isjtape ("JTAPE Product?" filter) and isspecialworkorderitem ("Special Work Order
  * Item", orange rows). Optional script parameters: custscript_usm_search overrides the saved search ID;
- * custscript_usm_exclude_customers (Multiple Select, list Customer) is the customers excluded from demand
- * when the page first opens. Viewers can change the exclusion on the form.
+ * custscript_usm_exclude_customers (Free-Form Text: customer internal IDs separated by commas, e.g. 1234,5678)
+ * is the customers excluded from demand when the page first opens. Viewers can change the exclusion on the form.
  *
  * @NApiVersion 2.1
  * @NScriptType Suitelet
