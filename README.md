@@ -3,7 +3,7 @@
 `src/uk-stock-monitor-suitelet.js` is a read-only Suitelet that reproduces the **UK Stock Monitor** saved search (customsearch1983) and adds demand-based stockholding. It never creates or changes records; the Create WO link opens a new work order form for a person to complete, as the saved search does.
 
 ## What it shows
-Everything the saved search shows except Type (% stocked, % available, preferred stock, replenish level, current, committed, available, WO's, qty to replenish, Create WO), plus:
+Everything the saved search shows except Type (% stocked, % available, preferred stock, replenish level, current, committed, available, Existing WO's, qty to replenish, Create WO), plus:
 
 | Column | Meaning |
 | --- | --- |
@@ -18,6 +18,8 @@ Everything the saved search shows except Type (% stocked, % available, preferred
 
 Filters: demand history in months (default 6, 1-24), cover weeks (default 6, 1-52), and JTAPE Product? (All / Yes / No). Export CSV downloads the same rows and leaves out any hidden columns.
 
+Exclude inventory items hides inventory items. Only items needing a work order shows just the rows with a Create WO link (assemblies whose available plus existing work orders is at or below the replenish level); this also leaves out inventory items. Both apply to the CSV export and are kept by Restore default layout.
+
 Exclude customers from demand (multi-select) leaves chosen customers out of Fulfilled, WO Consumed, average weekly demand and everything calculated from them. Stock columns are not affected. The page notes how many customers are excluded, and the choice is kept in the page address, so a bookmarked link keeps it.
 - Item fulfilments are excluded when the fulfilment's customer is selected.
 - Work order completions and issues are excluded when the work order they were created from has a selected customer. Work orders with no customer (stock builds) always count, even if the finished goods are later sold to an excluded customer.
@@ -27,7 +29,7 @@ Click any Fulfilled or WO Consumed figure to open a drill-down listing every tra
 
 The table sits in its own scroll box sized to the window, so the filters, buttons and notes stay on screen and the column headings stay at the top while you scroll the rows (or sideways). The drill-down works the same way.
 
-Default layout: Name, Description, % Stocked, % Available, Recommended Stock, Preferred Stock, Replenish Level, Current Stock, Committed, Available, Avg Weekly Demand, Weeks Cover, Cover Status, Qty to Replenish, Create WO, WO's; Fulfilled, WO Consumed, Recommended vs Preferred and Shortfall to Recommended are hidden until ticked in Choose columns. A viewer's own changes override the default in their browser; Restore default layout (in Choose columns) goes back to it, and also reloads the page with the deployment's default excluded customers if the current selection differs (demand history, cover weeks and JTAPE Product? are kept). Change the default with the COLUMNS order and DEFAULT_HIDDEN in the script.
+Default layout: Name, Description, % Stocked, % Available, Recommended Stock, Preferred Stock, Replenish Level, Current Stock, Committed, Available, Avg Weekly Demand, Weeks Cover, Cover Status, Qty to Replenish, Create WO, Existing WO's; Fulfilled, WO Consumed, Recommended vs Preferred and Shortfall to Recommended are hidden until ticked in Choose columns. A viewer's own changes override the default in their browser; Restore default layout (in Choose columns) goes back to it, and also reloads the page with the deployment's default excluded customers if the current selection differs (demand history, cover weeks and JTAPE Product? are kept). Change the default with the COLUMNS order and DEFAULT_HIDDEN in the script.
 
 Drag a column heading left or right to move the column. The order is saved in the browser like the column choice, the CSV export follows it.
 

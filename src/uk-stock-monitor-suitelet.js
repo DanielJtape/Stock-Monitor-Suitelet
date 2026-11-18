@@ -328,7 +328,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
 
   function woLink(row) {
     if (row.typeId === 'InvtPart') return 'Inventory';
-    if (row.replenish <= 0) return 'No WO Required';
+    if (!needsWorkOrder(row)) return 'No WO Required';
     return `<a target="_blank" href="/app/accounting/transactions/workord.nl?assemblyitem=${encodeURIComponent(row.id)}&quantity=${encodeURIComponent(row.replenish)}&whence=">Create WO</a>`;
   }
 
@@ -533,7 +533,7 @@ ${FIT_SCRIPT}
   const LIGHT_LABEL = { red: 'Red', amber: 'Amber', green: 'Green', '': '' };
   const LIGHT_TITLE = { red: 'Below 50% of recommended cover', amber: '50% to 100% of recommended cover', green: 'At or above recommended cover' };
   const light = status => (status ? `<span class="usm-light usm-light-${status}" title="${esc(LIGHT_TITLE[status])}"></span>` : '');
-  const NUMERIC = new Set(['Preferred Stock', 'Replenish Level', 'Current Stock', 'Committed', 'Available', "WO's", 'Qty to Replenish', 'Fulfilled',
+  const NUMERIC = new Set(['Preferred Stock', 'Replenish Level', 'Current Stock', 'Committed', 'Available', "Existing WO's", 'Qty to Replenish', 'Fulfilled',
     'WO Consumed', 'Avg Weekly Demand', 'Recommended Stock', 'Recommended vs Preferred', 'Weeks Cover', 'Shortfall to Recommended']);
 
   // Default layout: this order, with DEFAULT_HIDDEN columns hidden. Viewers can change both on the page.
@@ -553,7 +553,7 @@ ${FIT_SCRIPT}
     ['Cover Status', r => light(r.coverStatus), r => LIGHT_ORDER[r.coverStatus], r => LIGHT_LABEL[r.coverStatus]],
     ['Qty to Replenish', r => fmt(r.replenish), r => r.replenish],
     ['Create WO', woLink, () => ''],
-    ["WO's", r => blank(r.onOrder), r => r.onOrder],
+    ["Existing WO's", r => blank(r.onOrder), r => r.onOrder],
     ['Fulfilled', r => traceLink(r, blank(r.fulfilled), 'fulfilled'), r => r.fulfilled],
     ['WO Consumed', r => traceLink(r, blank(r.consumed), 'consumed'), r => r.consumed],
     ['Recommended vs Preferred', r => (r.vsPreferred > 0 ? '+' : '') + fmt(r.vsPreferred), r => r.vsPreferred],
@@ -561,7 +561,9 @@ ${FIT_SCRIPT}
   ];
 
   /** Stable key per column, used for the column chooser, its saved choice and the CSV export. */
-  const colKey = c => c[0].toLowerCase().replace(/%/g, 'pct').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  // Keys stay fixed when a column is renamed, so viewers' saved layouts keep working.
+  const KEY_OF_LABEL = { "Existing WO's": 'wo-s' };
+  const colKey = c => KEY_OF_LABEL[c[0]] || c[0].toLowerCase().replace(/%/g, 'pct').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const ALWAYS_SHOWN = 'name';
   const DEFAULT_HIDDEN = ['fulfilled', 'wo-consumed', 'recommended-vs-preferred', 'shortfall-to-recommended'];
 
@@ -712,6 +714,8 @@ apply();})();
       months,
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
+      noInventory: p.custpage_noinv === 'T',
+      woOnly: p.custpage_woonly === 'T',
       excluded: chosenExclusions(p, script.getParameter({ name: 'custscript_usm_exclude_customers' })),
       defaultExcluded: chosenExclusions({}, script.getParameter({ name: 'custscript_usm_exclude_customers' })),
       traceType: ['fulfilled', 'consumed', 'completion', 'issue'].includes(p.custpage_ttype) ? p.custpage_ttype : '',
@@ -745,12 +749,23 @@ apply();})();
     return { lines, sourcesFailed };
   }
 
+  /**
+   * Row filters from the form. Inventory items never have a Create WO link, so "only items needing a work order"
+   * also leaves them out; it keeps exactly the rows whose Create WO column shows the link.
+   */
+  function filterRows(rows, settings) {
+    return rows.filter(r => !(settings.noInventory && r.typeId === 'InvtPart') && !(settings.woOnly && !needsWorkOrder(r)));
+  }
+
+  const needsWorkOrder = r => r.typeId !== 'InvtPart' && r.replenish > 0;
+
   /** Page address that reapplies the default excluded customers, or '' when they are already in use. */
   function resetUrl(settings, script) {
     const same = settings.excluded.length === settings.defaultExcluded.length && settings.excluded.every(id => settings.defaultExcluded.includes(id));
     if (same) return '';
     return `/app/site/hosting/scriptlet.nl?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}`
-      + `&custpage_months=${settings.months}&custpage_weeks=${settings.weeks}&custpage_jtape=${encodeURIComponent(settings.jtape)}`;
+      + `&custpage_months=${settings.months}&custpage_weeks=${settings.weeks}&custpage_jtape=${encodeURIComponent(settings.jtape)}`
+      + `&custpage_noinv=${settings.noInventory ? 'T' : 'F'}&custpage_woonly=${settings.woOnly ? 'T' : 'F'}`;
   }
 
   function onRequest(context) {
@@ -761,7 +776,7 @@ apply();})();
       redirect.toSuitelet({
         scriptId: script.id,
         deploymentId: script.deploymentId,
-        parameters: { custpage_months: p.custpage_months, custpage_weeks: p.custpage_weeks, custpage_jtape: p.custpage_jtape || '', custpage_exclude: excludedCustomers(p.custpage_exclude).join(','), custpage_exset: 'T' }
+        parameters: { custpage_months: p.custpage_months, custpage_weeks: p.custpage_weeks, custpage_jtape: p.custpage_jtape || '', custpage_noinv: p.custpage_noinv === 'T' ? 'T' : 'F', custpage_woonly: p.custpage_woonly === 'T' ? 'T' : 'F', custpage_exclude: excludedCustomers(p.custpage_exclude).join(','), custpage_exset: 'T' }
       });
       return;
     }
@@ -789,8 +804,8 @@ apply();})();
 
     const stock = stockRows(settings, settings.jtape);
     const demand = demandByItem(stock.map(r => r.locationId), settings.window, settings.excluded);
-    const rows = stock.map(r => ({ ...evaluate(r, demand[`${r.id}|${r.locationId}`], settings.window, settings.weeks),
-      traceUrl: `${base}&custpage_trace=${encodeURIComponent(r.id)}&custpage_loc=${encodeURIComponent(r.locationId)}` }));
+    const rows = filterRows(stock.map(r => ({ ...evaluate(r, demand[`${r.id}|${r.locationId}`], settings.window, settings.weeks),
+      traceUrl: `${base}&custpage_trace=${encodeURIComponent(r.id)}&custpage_loc=${encodeURIComponent(r.locationId)}` })), settings);
 
     if (settings.csv) {
       response.writeFile({ file: file.create({ name: `uk-stock-monitor-${ymd(settings.window.end)}.csv`, fileType: file.Type.CSV, contents: toCsv(rows, settings.hidden, settings.order) }), isInline: false });
@@ -808,11 +823,16 @@ apply();})();
     jtape.addSelectOption({ value: 'T', text: 'Yes' });
     jtape.addSelectOption({ value: 'F', text: 'No' });
     jtape.defaultValue = settings.jtape;
+    const noInv = form.addField({ id: 'custpage_noinv', type: serverWidget.FieldType.CHECKBOX, label: 'Exclude inventory items', container: 'custpage_filters' });
+    noInv.defaultValue = settings.noInventory ? 'T' : 'F';
+    const woOnly = form.addField({ id: 'custpage_woonly', type: serverWidget.FieldType.CHECKBOX, label: 'Only items needing a work order', container: 'custpage_filters' });
+    woOnly.defaultValue = settings.woOnly ? 'T' : 'F';
+    woOnly.setHelpText({ help: 'Shows only assemblies with a Create WO link: available plus existing work orders at or below the replenish level.' });
     const exclude = form.addField({ id: 'custpage_exclude', type: serverWidget.FieldType.MULTISELECT, label: 'Exclude customers from demand', source: 'customer', container: 'custpage_filters' });
     exclude.setHelpText({ help: 'Fulfilments to these customers, and work orders for these customers, are left out of average weekly demand and the recommended stock.' });
     if (settings.excluded.length) exclude.defaultValue = settings.excluded;
     form.addSubmitButton({ label: 'Refresh' });
-    const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_exclude: settings.excluded.join(','), custpage_exset: 'T', custpage_csv: 'T' };
+    const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_noinv: settings.noInventory ? 'T' : 'F', custpage_woonly: settings.woOnly ? 'T' : 'F', custpage_exclude: settings.excluded.join(','), custpage_exset: 'T', custpage_csv: 'T' };
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
     form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'')+(window.usmColumnOrder?'&custpage_order='+encodeURIComponent(window.usmColumnOrder()):'');})` });
     const html = form.addField({ id: 'custpage_results', type: serverWidget.FieldType.INLINEHTML, label: 'Results' });
@@ -823,5 +843,5 @@ apply();})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { resetUrl, weeklyDemand, chartButton, chosenExclusions, DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { filterRows, woLink, resetUrl, weeklyDemand, chartButton, chosenExclusions, DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });

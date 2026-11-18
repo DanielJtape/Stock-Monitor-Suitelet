@@ -246,7 +246,7 @@ test('default layout matches the agreed column order and hidden columns', () => 
   const { COLUMNS, DEFAULT_HIDDEN, renderTable } = exported._test;
   assert.deepEqual(COLUMNS.map(c => c[0]), ['Name', 'Description', '% Stocked', '% Available', 'Recommended Stock', 'Preferred Stock',
     'Replenish Level', 'Current Stock', 'Committed', 'Available', 'Avg Weekly Demand', 'Weeks Cover', 'Cover Status', 'Qty to Replenish',
-    'Create WO', "WO's", 'Fulfilled', 'WO Consumed', 'Recommended vs Preferred', 'Shortfall to Recommended']);
+    'Create WO', "Existing WO's", 'Fulfilled', 'WO Consumed', 'Recommended vs Preferred', 'Shortfall to Recommended']);
   assert.deepEqual(DEFAULT_HIDDEN, ['fulfilled', 'wo-consumed', 'recommended-vs-preferred', 'shortfall-to-recommended']);
   const html = renderTable([], { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18), weeks: 26 }, weeks: 6 });
   assert.ok(html.includes(`var DEFAULT=${JSON.stringify(DEFAULT_HIDDEN)}`));
@@ -306,9 +306,27 @@ test('restore default layout reloads with the default excluded customers only wh
   const base = { months: 6, weeks: 6, jtape: 'T', defaultExcluded: ['101', '202'] };
   assert.equal(resetUrl({ ...base, excluded: ['202', '101'] }, script), '');
   const url = resetUrl({ ...base, excluded: [] }, script);
-  assert.equal(url, '/app/site/hosting/scriptlet.nl?script=customscript_usm&deploy=customdeploy_usm&custpage_months=6&custpage_weeks=6&custpage_jtape=T');
+  assert.equal(url, '/app/site/hosting/scriptlet.nl?script=customscript_usm&deploy=customdeploy_usm&custpage_months=6&custpage_weeks=6&custpage_jtape=T&custpage_noinv=F&custpage_woonly=F');
   assert.ok(!url.includes('custpage_exset') && !url.includes('custpage_exclude'));
   const settings = { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18), weeks: 26 }, weeks: 6, resetUrl: url };
   assert.ok(renderTable([], settings).includes(`data-reset-url="${url.replace(/&/g, '&amp;')}"`));
   assert.ok(!renderTable([], { ...settings, resetUrl: '' }).includes('data-reset-url="'));
+});
+
+test('renamed Existing WO\'s column keeps its saved-layout key', () => {
+  const { COLUMNS, colKey } = exported._test;
+  assert.equal(colKey(COLUMNS.find(c => c[0] === "Existing WO's")), 'wo-s');
+});
+
+test('filters exclude inventory items and keep only rows with a Create WO link', () => {
+  const { filterRows, woLink } = exported._test;
+  const rows = [
+    { name: 'inv', typeId: 'InvtPart', replenish: 50 },
+    { name: 'needs', typeId: 'Assembly', replenish: 779 },
+    { name: 'fine', typeId: 'Assembly', replenish: 0 }
+  ].map(r => ({ ...r, id: r.name }));
+  assert.deepEqual(filterRows(rows, {}).map(r => r.name), ['inv', 'needs', 'fine']);
+  assert.deepEqual(filterRows(rows, { noInventory: true }).map(r => r.name), ['needs', 'fine']);
+  assert.deepEqual(filterRows(rows, { woOnly: true }).map(r => r.name), ['needs']);
+  for (const r of rows) assert.equal(filterRows([r], { woOnly: true }).length === 1, woLink(r).includes('Create WO'), r.name);
 });
