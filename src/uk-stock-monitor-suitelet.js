@@ -571,11 +571,11 @@ ${FIT_SCRIPT}
     return [...new Set(String(value || '').split(',').map(k => k.trim()).filter(k => known.has(k) && k !== ALWAYS_SHOWN))];
   }
 
-  function columnChooser() {
+  function columnChooser(settings = {}) {
     const boxes = COLUMNS.filter(c => colKey(c) !== ALWAYS_SHOWN).map(c =>
       `<label><input type="checkbox" data-key="${esc(colKey(c))}" checked> ${esc(c[0])}</label>`).join('');
     return `<div class="usm-cols"><button type="button" id="usm-cols-btn">Choose columns &#9662;</button>
-<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a> &middot; <a href="#" id="usm-cols-order">Restore default layout</a></div></div></div>`;
+<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a> &middot; <a href="#" id="usm-cols-order" title="Default columns, column order and excluded customers"${settings.resetUrl ? ` data-reset-url="${esc(settings.resetUrl)}"` : ''}>Restore default layout</a></div></div></div>`;
   }
 
   function renderTable(rows, settings) {
@@ -635,7 +635,7 @@ ${FIT_SCRIPT}
 <div class="usm-note">${esc(rows.length)} items. Demand ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}
  (${esc(fmt(settings.window.weeks, 1))} weeks): posted item fulfilments plus components consumed by work order completions and issues, in base units.${settings.excluded && settings.excluded.length ? ` <b>Excluding ${esc(settings.excluded.length)} customer${settings.excluded.length === 1 ? '' : 's'}</b> (their fulfilments and work orders).` : ''}
  Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Cover Status: green = weeks cover at or above ${esc(settings.weeks)} weeks, amber = 50% to 100% of it, red = below 50%. Click a Fulfilled or WO Consumed figure to see the transaction lines behind it. Click a column heading to sort.</div>
-${columnChooser()}
+${columnChooser(settings)}
 <style id="usm-hide"></style>
 <div class="usm-wrap"><table class="usm" id="usm"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
 <div id="usm-modal" class="usm-modal" hidden><div class="usm-dialog" role="dialog" aria-modal="true" aria-labelledby="usm-modal-title">
@@ -679,7 +679,8 @@ window.usmHiddenColumns=function(){return hidden.join(',');};
 inputs.forEach(function(i){i.addEventListener('change',function(){hidden=inputs.filter(function(x){return !x.checked;}).map(function(x){return x.getAttribute('data-key');});apply();});});
 btn.addEventListener('click',function(e){e.preventDefault();box.style.display=box.style.display==='none'?'':'none';});
 document.getElementById('usm-cols-all').addEventListener('click',function(e){e.preventDefault();hidden=[];apply();});
-document.getElementById('usm-cols-order').addEventListener('click',function(e){e.preventDefault();hidden=DEFAULT.slice();apply();if(window.usmResetColumnOrder)window.usmResetColumnOrder();});
+document.getElementById('usm-cols-order').addEventListener('click',function(e){e.preventDefault();hidden=DEFAULT.slice();apply();if(window.usmResetColumnOrder)window.usmResetColumnOrder();
+var reset=this.getAttribute('data-reset-url');if(reset)window.location.href=reset;});
 document.addEventListener('click',function(e){if(!box.contains(e.target)&&e.target!==btn)box.style.display='none';});
 apply();})();
 </script>`;
@@ -712,6 +713,7 @@ apply();})();
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
       excluded: chosenExclusions(p, script.getParameter({ name: 'custscript_usm_exclude_customers' })),
+      defaultExcluded: chosenExclusions({}, script.getParameter({ name: 'custscript_usm_exclude_customers' })),
       traceType: ['fulfilled', 'consumed', 'completion', 'issue'].includes(p.custpage_ttype) ? p.custpage_ttype : '',
       weekly: p.custpage_weekly === 'T',
       traceItem: RECORD_ID.test(String(p.custpage_trace || '')) ? String(p.custpage_trace) : '',
@@ -741,6 +743,14 @@ apply();})();
     }
     lines.forEach(l => Object.assign(l, sourceFields(sources[String(l.tranid_internal)])));
     return { lines, sourcesFailed };
+  }
+
+  /** Page address that reapplies the default excluded customers, or '' when they are already in use. */
+  function resetUrl(settings, script) {
+    const same = settings.excluded.length === settings.defaultExcluded.length && settings.excluded.every(id => settings.defaultExcluded.includes(id));
+    if (same) return '';
+    return `/app/site/hosting/scriptlet.nl?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}`
+      + `&custpage_months=${settings.months}&custpage_weeks=${settings.weeks}&custpage_jtape=${encodeURIComponent(settings.jtape)}`;
   }
 
   function onRequest(context) {
@@ -806,9 +816,12 @@ apply();})();
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
     form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'')+(window.usmColumnOrder?'&custpage_order='+encodeURIComponent(window.usmColumnOrder()):'');})` });
     const html = form.addField({ id: 'custpage_results', type: serverWidget.FieldType.INLINEHTML, label: 'Results' });
+    // Restore default layout also returns to the deployment's default excluded customers when they differ,
+    // keeping the other filters (a page load without custpage_exset applies the default).
+    settings.resetUrl = resetUrl(settings, script);
     html.defaultValue = renderTable(rows, settings);
     response.writePage(form);
   }
 
-  return { onRequest, _test: { weeklyDemand, chartButton, chosenExclusions, DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { resetUrl, weeklyDemand, chartButton, chosenExclusions, DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });

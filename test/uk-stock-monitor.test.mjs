@@ -299,3 +299,16 @@ test('chart button appears only for rows with demand and escapes the item name',
   assert.ok(html.includes('data-url="/x?a=1&amp;custpage_weekly=T"'));
   assert.ok(html.includes('&lt;b&gt;A&lt;/b&gt;') && !html.includes('<b>A</b>'));
 });
+
+test('restore default layout reloads with the default excluded customers only when they differ', () => {
+  const { resetUrl, renderTable } = exported._test;
+  const script = { id: 'customscript_usm', deploymentId: 'customdeploy_usm' };
+  const base = { months: 6, weeks: 6, jtape: 'T', defaultExcluded: ['101', '202'] };
+  assert.equal(resetUrl({ ...base, excluded: ['202', '101'] }, script), '');
+  const url = resetUrl({ ...base, excluded: [] }, script);
+  assert.equal(url, '/app/site/hosting/scriptlet.nl?script=customscript_usm&deploy=customdeploy_usm&custpage_months=6&custpage_weeks=6&custpage_jtape=T');
+  assert.ok(!url.includes('custpage_exset') && !url.includes('custpage_exclude'));
+  const settings = { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18), weeks: 26 }, weeks: 6, resetUrl: url };
+  assert.ok(renderTable([], settings).includes(`data-reset-url="${url.replace(/&/g, '&amp;')}"`));
+  assert.ok(!renderTable([], { ...settings, resetUrl: '' }).includes('data-reset-url="'));
+});

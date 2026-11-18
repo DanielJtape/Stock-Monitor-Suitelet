@@ -27,7 +27,7 @@ Click any Fulfilled or WO Consumed figure to open a drill-down listing every tra
 
 The table sits in its own scroll box sized to the window, so the filters, buttons and notes stay on screen and the column headings stay at the top while you scroll the rows (or sideways). The drill-down works the same way.
 
-Default layout: Name, Description, % Stocked, % Available, Recommended Stock, Preferred Stock, Replenish Level, Current Stock, Committed, Available, Avg Weekly Demand, Weeks Cover, Cover Status, Qty to Replenish, Create WO, WO's; Fulfilled, WO Consumed, Recommended vs Preferred and Shortfall to Recommended are hidden until ticked in Choose columns. A viewer's own changes override the default in their browser; Restore default layout (in Choose columns) goes back to it. Change the default with the COLUMNS order and DEFAULT_HIDDEN in the script.
+Default layout: Name, Description, % Stocked, % Available, Recommended Stock, Preferred Stock, Replenish Level, Current Stock, Committed, Available, Avg Weekly Demand, Weeks Cover, Cover Status, Qty to Replenish, Create WO, WO's; Fulfilled, WO Consumed, Recommended vs Preferred and Shortfall to Recommended are hidden until ticked in Choose columns. A viewer's own changes override the default in their browser; Restore default layout (in Choose columns) goes back to it, and also reloads the page with the deployment's default excluded customers if the current selection differs (demand history, cover weeks and JTAPE Product? are kept). Change the default with the COLUMNS order and DEFAULT_HIDDEN in the script.
 
 Drag a column heading left or right to move the column. The order is saved in the browser like the column choice, the CSV export follows it.
 
