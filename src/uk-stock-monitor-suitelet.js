@@ -80,9 +80,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
       pctStocked: percent(row.onHand, row.preferred),
       pctAvailable: percent(row.available, row.preferred),
       replenish,
-      // Highlighting: orange = special WO item; yellow = below replenish level with nothing on order;
-      // green = below replenish level but work orders are already open.
-      highlight: row.special ? 'special' : position - num(row.reorderPoint) <= 0 ? (num(row.onOrder) > 0 ? 'covered' : 'replenish') : ''
+      // Highlighting: orange = special WO item; yellow = at or below replenish level with nothing on order.
+      highlight: row.special ? 'special' : position - num(row.reorderPoint) <= 0 && num(row.onOrder) <= 0 ? 'replenish' : ''
     };
   }
 
@@ -597,7 +596,6 @@ ${FIT_SCRIPT}
   table.usm tbody tr:hover td{box-shadow:inset 0 0 0 9999px rgba(42,120,214,.10)}
   tr.usm-special td,tr.usm-special a{background:#ff9900;color:#c00}
   tr.usm-replenish td,tr.usm-replenish a{background:#ffff66;color:#c00}
-  tr.usm-covered td,tr.usm-covered a{background:#ccee99;color:#c00}
   table.usm td.usm-center{text-align:center}
   .usm-light{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid rgba(0,0,0,.35);vertical-align:middle}
   .usm-light-green{background:#22c23b}

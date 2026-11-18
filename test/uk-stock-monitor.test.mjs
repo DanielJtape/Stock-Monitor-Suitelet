@@ -29,7 +29,7 @@ test('average weekly demand includes fulfilments and work order consumption; rec
   assert.equal(row.shortfall, 30);
   assert.equal(row.weeksCover, 3.3);
   assert.equal(row.vsPreferred, -220);
-  assert.equal(row.highlight, 'covered');
+  assert.equal(row.highlight, '', 'below replenish level with work orders open is not highlighted');
 });
 
 test('no history means no recommendation and no weeks cover', () => {

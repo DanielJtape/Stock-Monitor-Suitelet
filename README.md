@@ -39,7 +39,7 @@ It uses exactly the counted drill-down lines, including customer exclusions.
 
 Choose columns (above the table) shows or hides any column except Name straight away, without re-running the search. The choice is saved in the browser, so each person keeps their own layout on that computer; Show all restores every column. Column headings sort the table.
 
-Row colours: orange = Special Work Order Item; yellow = available + on order at or below the replenish level with nothing on order; light green = at or below the replenish level but work orders are open. Adjust in `evaluate()` if the saved search's yellow/green rules differ.
+Row colours: orange = Special Work Order Item; yellow = available + on order at or below the replenish level with nothing on order. Other rows are not coloured. Adjust in `evaluate()`.
 
 ## Rules
 - Stock rows come from the saved search itself (`search.load`), so its criteria remain the single definition of which items appear. The Suitelet replaces only the columns.
