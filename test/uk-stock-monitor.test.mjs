@@ -201,3 +201,18 @@ test('a fulfilment main line is its first item line and counts; work order main 
   assert.equal(lineReason({ counted: 0, iscogs: 'F', mainline: 'T', quantity: -2, type: 'WOIssue' }), 'Main line of the work order transaction');
   assert.equal(lineReason({ counted: 1, iscogs: 'F', mainline: 'T', quantity: -80, type: 'ItemShip' }), 'Counted');
 });
+
+test('drill-down rows carry type and counted flags for the filter, preset from the clicked figure', () => {
+  const { renderTrace, COLUMNS } = exported._test;
+  const settings = { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18) }, excluded: [], traceType: 'consumed' };
+  const html = renderTrace([
+    { type: 'ItemShip', quantity: -80, iscogs: 'F', counted: 1, tranid: 'IF1' },
+    { type: 'WOIssue', quantity: -3, iscogs: 'F', counted: 1, tranid: 'WOI1' }
+  ], settings, '42', { fulfilled: 80, consumed: 3 });
+  assert.ok(html.includes('data-type="ItemShip" data-counted="1" data-qty="80"'));
+  assert.ok(html.includes('<option value="WOCompl,WOIssue" selected>'));
+  const row = { fulfilled: 5, consumed: 2, traceUrl: '/x?a=1' };
+  const cell = name => COLUMNS.find(c => c[0] === name)[1](row);
+  assert.ok(cell('Fulfilled').includes('custpage_ttype=fulfilled'));
+  assert.ok(cell('WO Consumed').includes('custpage_ttype=consumed'));
+});

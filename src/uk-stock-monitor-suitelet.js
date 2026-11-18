@@ -260,9 +260,17 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return `<a target="_blank" href="/app/accounting/transactions/workord.nl?assemblyitem=${encodeURIComponent(row.id)}&quantity=${encodeURIComponent(row.replenish)}&whence=">Create WO</a>`;
   }
 
-  const traceLink = (r, text) => (text && r.traceUrl ? `<a target="_blank" title="Show the transaction lines behind this figure" href="${esc(r.traceUrl)}">${text}</a>` : text);
+  const traceLink = (r, text, type) => (text && r.traceUrl ? `<a target="_blank" title="Show the transaction lines behind this figure" href="${esc(`${r.traceUrl}&custpage_ttype=${type}`)}">${text}</a>` : text);
 
   const TYPE_LABEL = { ItemShip: 'Item Fulfilment', WOCompl: 'WO Completion', WOIssue: 'WO Issue' };
+
+  const TRACE_FILTERS = [
+    { key: '', value: '', label: 'All' },
+    { key: 'fulfilled', value: 'ItemShip', label: 'Item Fulfilment' },
+    { key: 'consumed', value: 'WOCompl,WOIssue', label: 'WO Completion + WO Issue' },
+    { key: 'completion', value: 'WOCompl', label: 'WO Completion' },
+    { key: 'issue', value: 'WOIssue', label: 'WO Issue' }
+  ];
 
   /** Drill-down page body: every candidate line for one item, with what was counted and why. */
   function renderTrace(lines, settings, itemId, main, sourcesFailed) {
@@ -272,7 +280,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
       const counted = num(l.counted) === 1 ? -num(l.quantity) : 0;
       if (!counted) skipped++; else if (l.type === 'ItemShip') fulfilled += counted; else consumed += counted;
       const customer = l.type === 'ItemShip' ? l.customer : l.wocustomer;
-      return `<tr class="${counted ? '' : 'usm-skip'}"><td>${esc(l.trandate)}</td><td>${esc(TYPE_LABEL[l.type] || l.type)}</td>
+      return `<tr class="${counted ? '' : 'usm-skip'}" data-type="${esc(l.type)}" data-counted="${counted ? 1 : 0}" data-qty="${counted}"><td>${esc(l.trandate)}</td><td>${esc(TYPE_LABEL[l.type] || l.type)}</td>
 <td><a target="_blank" href="/app/accounting/transactions/transaction.nl?id=${encodeURIComponent(l.tranid_internal)}">${esc(l.tranid)}</a></td>
 <td>${esc(l.createdfrom)}</td><td>${esc(customer)}</td><td class="usm-num">${esc(fmt(l.quantity, 2))}</td><td>${l.mainline === 'T' ? 'Yes' : ''}</td><td>${l.iscogs === 'T' ? 'Yes' : ''}</td>
 <td class="usm-num">${counted ? esc(fmt(counted, 2)) : ''}</td><td>${esc(lineReason(l, settings.excluded))}</td></tr>`;
@@ -286,6 +294,9 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   table.usm td.usm-num{text-align:right}
   tr.usm-skip td{color:#999}
   .usm-note{margin:6px 0 10px;font-size:13px}
+  .usm-filter{margin:6px 0 10px;font-size:13px}
+  .usm-filter select{font-size:13px;margin-right:12px}
+  #usm-shown{margin-left:12px;color:#555}
   .usm-warn{margin:6px 0 10px;padding:6px 10px;background:#fff3cd;border:1px solid #e0b000;font-size:13px}
 </style>
 <div class="usm-note"><b>${esc(name)}</b>: transaction lines at this location from ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}.
@@ -295,8 +306,19 @@ ${main && (Math.abs(num(main.fulfilled) - fulfilled) > 0.0001 || Math.abs(num(ma
     ? `<div class="usm-warn">These lines do not add up to the main list (Fulfilled ${esc(fmt(main.fulfilled, 2))}, WO Consumed ${esc(fmt(main.consumed, 2))}). Please report this.</div>`
     : `<div class="usm-note">Matches the main list.</div>`}
 ${sourcesFailed ? '<div class="usm-warn">Created From and work order customers could not be read; the figures are unaffected.</div>' : ''}
-<div class="usm-wrap"><table class="usm"><thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Created From</th><th>Customer</th><th>Line Quantity</th><th>Main Line</th><th>COGS Line</th><th>Counted</th><th>Reason</th></tr></thead>
-<tbody>${body}</tbody></table></div>`;
+<div class="usm-filter">Type <select id="usm-type">${TRACE_FILTERS.map(f => `<option value="${f.value}"${f.key === settings.traceType ? ' selected' : ''}>${f.label}</option>`).join('')}</select>
+ <label><input type="checkbox" id="usm-counted"> Counted lines only</label> <span id="usm-shown"></span></div>
+<div class="usm-wrap"><table class="usm" id="usm-trace"><thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Created From</th><th>Customer</th><th>Line Quantity</th><th>Main Line</th><th>COGS Line</th><th>Counted</th><th>Reason</th></tr></thead>
+<tbody>${body}</tbody></table></div>
+<script>
+(function(){var t=document.getElementById('usm-trace'),sel=document.getElementById('usm-type'),only=document.getElementById('usm-counted'),info=document.getElementById('usm-shown');
+if(!t||!sel||!only)return;
+function apply(){var types=sel.value?sel.value.split(','):null,shown=0,total=0;
+[].slice.call(t.tBodies[0].rows).forEach(function(row){var ok=(!types||types.indexOf(row.getAttribute('data-type'))>=0)&&(!only.checked||row.getAttribute('data-counted')==='1');
+row.style.display=ok?'':'none';if(ok){shown++;total+=parseFloat(row.getAttribute('data-qty'))||0;}});
+info.textContent='Showing '+shown+' of '+t.tBodies[0].rows.length+' lines; counted quantity shown: '+total.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
+sel.addEventListener('change',apply);only.addEventListener('change',apply);apply();})();
+</script>`;
   }
 
   const LIGHT_ORDER = { red: 0, amber: 1, green: 2, '': 3 };
@@ -318,8 +340,8 @@ ${sourcesFailed ? '<div class="usm-warn">Created From and work order customers c
     ['Available', r => blank(r.available), r => r.available],
     ["WO's", r => blank(r.onOrder), r => r.onOrder],
     ['Qty to Replenish', r => fmt(r.replenish), r => r.replenish],
-    ['Fulfilled', r => traceLink(r, blank(r.fulfilled)), r => r.fulfilled],
-    ['WO Consumed', r => traceLink(r, blank(r.consumed)), r => r.consumed],
+    ['Fulfilled', r => traceLink(r, blank(r.fulfilled), 'fulfilled'), r => r.fulfilled],
+    ['WO Consumed', r => traceLink(r, blank(r.consumed), 'consumed'), r => r.consumed],
     ['Avg Weekly Demand', r => blank(r.avgWeekly, 1), r => r.avgWeekly],
     ['Recommended Stock', r => blank(r.recommended), r => r.recommended],
     ['Recommended vs Preferred', r => (r.vsPreferred > 0 ? '+' : '') + fmt(r.vsPreferred), r => r.vsPreferred],
@@ -424,6 +446,7 @@ apply();})();
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
       excluded: excludedCustomers(p.custpage_exclude),
+      traceType: ['fulfilled', 'consumed', 'completion', 'issue'].includes(p.custpage_ttype) ? p.custpage_ttype : '',
       traceItem: RECORD_ID.test(String(p.custpage_trace || '')) ? String(p.custpage_trace) : '',
       traceLocation: RECORD_ID.test(String(p.custpage_loc || '')) ? String(p.custpage_loc) : '',
       csv: p.custpage_csv === 'T',
