@@ -130,3 +130,37 @@ test('demand query excludes customers on fulfilments and on the work order behin
   assert.ok(sql.includes("hdr.mainline = 'T'") && sql.includes("wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'"));
   assert.ok(sql.includes('tl.location IN (1,5)'));
 });
+
+test('demand counts only stock-out lines and never cost of goods lines', () => {
+  const { demandSql } = exported._test;
+  const { sql } = demandSql(['1'], []);
+  assert.ok(sql.includes("tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F'"));
+  assert.ok(sql.includes('SUM(-tl.quantity)'));
+  assert.ok(!sql.includes('ABS('));
+});
+
+test('trace query uses the same counting rule and rejects bad ids', () => {
+  const { traceSql, countedSql } = exported._test;
+  const sql = traceSql('42', '1', ['7']);
+  assert.ok(sql.includes(`CASE WHEN ${countedSql(['7'])} THEN 1 ELSE 0 END`));
+  assert.ok(sql.includes('tl.item = 42 AND tl.location = 1'));
+  assert.throws(() => traceSql('42 OR 1=1', '1'));
+  assert.throws(() => traceSql('42', ''));
+});
+
+test('trace explains why lines are not counted and totals the counted ones', () => {
+  const { lineReason, renderTrace } = exported._test;
+  assert.equal(lineReason({ counted: 0, iscogs: 'T', quantity: -5, type: 'ItemShip' }), 'Cost of goods line (duplicate of the item line)');
+  assert.equal(lineReason({ counted: 0, iscogs: 'F', quantity: 10, type: 'WOCompl' }), 'Output or stock in, not consumption');
+  assert.equal(lineReason({ counted: 0, iscogs: 'F', quantity: -3, type: 'ItemShip', customerid: 9 }, ['9']), 'Excluded customer');
+  const lines = [
+    { type: 'ItemShip', quantity: -10, iscogs: 'F', counted: 1, tranid: 'IF1', itemname: '1011.2050 JTAPE' },
+    { type: 'ItemShip', quantity: -10, iscogs: 'T', counted: 0, tranid: 'IF1' },
+    { type: 'WOCompl', quantity: -4, iscogs: 'F', counted: 1, tranid: 'WOC1' },
+    { type: 'WOCompl', quantity: 6, iscogs: 'F', counted: 0, tranid: 'WOC1' }
+  ];
+  const html = renderTrace(lines, { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18) }, excluded: [] }, '42');
+  assert.ok(html.includes('Fulfilled <b>10.00</b>'));
+  assert.ok(html.includes('WO Consumed <b>4.00</b>'));
+  assert.ok(html.includes('2 lines shown in grey are not counted'));
+});

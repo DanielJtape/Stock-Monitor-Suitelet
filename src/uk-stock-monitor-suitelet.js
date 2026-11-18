@@ -138,38 +138,73 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return [...new Set(String(value || '').split(/[\u0005,\s]+/).filter(id => RECORD_ID.test(id)))].slice(0, MAX_EXCLUDED);
   }
 
+  const DEMAND_TYPES = `t.type IN ('ItemShip', 'WOCompl', 'WOIssue')`;
+  const BASE_FILTERS = `${DEMAND_TYPES}
+        AND t.trandate >= TO_DATE(?, 'YYYY-MM-DD') AND t.trandate <= TO_DATE(?, 'YYYY-MM-DD')
+        AND t.posting = 'T' AND t.voided = 'F'
+        AND tl.mainline = 'F'`;
+  const SOURCE_JOINS = `
+      LEFT JOIN transactionline hdr ON hdr.transaction = t.id AND hdr.mainline = 'T'
+      LEFT JOIN transaction wo ON wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'`;
+
   /**
-   * SuiteQL for demand. Excluded customers are matched on the fulfilment's customer for item fulfilments and on
-   * the work order's customer for completions and issues (found through the transaction's Created From). IDs
-   * are validated integers before they are written into the query.
+   * Which lines count as demand. Only stock leaving the location counts (negative quantity): the item line
+   * on a fulfilment and component lines on completions and issues, never the assembly a completion adds.
+   * Cost of goods sold lines repeat the item on fulfilments and are never counted. Excluded customers are
+   * matched on the fulfilment's customer, and on the work order's customer for completions and issues.
    */
+  function countedSql(customers) {
+    const list = customers.join(',');
+    return `tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F'${customers.length ? `
+        AND NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (${list}))
+        AND NOT (t.type IN ('WOCompl', 'WOIssue') AND NVL(wo.entity, 0) IN (${list}))` : ''}`;
+  }
+
+  /** SuiteQL for demand totals per item, location and transaction type. IDs are validated integers. */
   function demandSql(locationIds, excluded = []) {
     const locs = [...new Set(locationIds.map(String))].filter(id => RECORD_ID.test(id));
     const customers = excludedCustomers(excluded.join(','));
-    const exclusion = customers.length ? `
-        AND NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (${customers.join(',')}))
-        AND NOT (t.type IN ('WOCompl', 'WOIssue') AND NVL(wo.entity, 0) IN (${customers.join(',')}))` : '';
-    const joins = customers.length ? `
-      LEFT JOIN transactionline hdr ON hdr.transaction = t.id AND hdr.mainline = 'T'
-      LEFT JOIN transaction wo ON wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'` : '';
     return { locs, sql: `
-      SELECT tl.item AS item, tl.location AS location, t.type AS type,
-             SUM(CASE WHEN t.type = 'ItemShip' THEN ABS(tl.quantity) ELSE -tl.quantity END) AS qty
+      SELECT tl.item AS item, tl.location AS location, t.type AS type, SUM(-tl.quantity) AS qty
       FROM transactionline tl
-      JOIN transaction t ON t.id = tl.transaction${joins}
-      WHERE t.type IN ('ItemShip', 'WOCompl', 'WOIssue')
-        AND t.trandate >= TO_DATE(?, 'YYYY-MM-DD') AND t.trandate <= TO_DATE(?, 'YYYY-MM-DD')
-        AND t.posting = 'T' AND t.voided = 'F'
-        AND tl.mainline = 'F'
+      JOIN transaction t ON t.id = tl.transaction${customers.length ? SOURCE_JOINS : ''}
+      WHERE ${BASE_FILTERS}
         AND tl.itemtype IN ('InvtPart', 'Assembly')
         AND tl.location IN (${locs.join(',')})
-        AND (t.type = 'ItemShip' OR tl.quantity < 0)${exclusion}
+        AND ${countedSql(customers)}
       GROUP BY tl.item, tl.location, t.type` };
   }
 
+  /** SuiteQL listing every candidate line for one item and location, flagged with whether it counts. */
+  function traceSql(itemId, locationId, excluded = []) {
+    if (!RECORD_ID.test(String(itemId)) || !RECORD_ID.test(String(locationId))) throw Error('Invalid item or location');
+    const customers = excludedCustomers(excluded.join(','));
+    return `
+      SELECT t.id AS tranid_internal, t.tranid AS tranid, t.type AS type, TO_CHAR(t.trandate, 'YYYY-MM-DD') AS trandate,
+             BUILTIN.DF(tl.item) AS itemname, BUILTIN.DF(hdr.createdfrom) AS createdfrom,
+             BUILTIN.DF(t.entity) AS customer, BUILTIN.DF(wo.entity) AS wocustomer,
+             NVL(t.entity, 0) AS customerid, NVL(wo.entity, 0) AS wocustomerid,
+             tl.id AS lineid, tl.quantity AS quantity, NVL(tl.iscogs, 'F') AS iscogs,
+             CASE WHEN ${countedSql(customers)} THEN 1 ELSE 0 END AS counted
+      FROM transactionline tl
+      JOIN transaction t ON t.id = tl.transaction${SOURCE_JOINS}
+      WHERE ${BASE_FILTERS}
+        AND tl.item = ${itemId} AND tl.location = ${locationId}
+      ORDER BY t.trandate, t.id, tl.id`;
+  }
+
+  /** Why a traced line is or is not counted (explanation only; the query decides). */
+  function lineReason(line, excluded = []) {
+    if (num(line.counted) === 1) return 'Counted';
+    if (line.iscogs === 'T') return 'Cost of goods line (duplicate of the item line)';
+    if (num(line.quantity) >= 0) return line.type === 'ItemShip' ? 'Not stock out (positive quantity)' : 'Output or stock in, not consumption';
+    const customer = String(line.type === 'ItemShip' ? line.customerid : line.wocustomerid);
+    if (excluded.includes(customer)) return 'Excluded customer';
+    return 'Not counted';
+  }
+
   /**
-   * Demand per item|location in base units. Fulfilment lines count in full; for completions and issues
-   * only negative (consumed) component lines count, so the assembly being built is never demand for itself.
+   * Demand per item|location in base units (see countedSql for which lines count).
    * Only posting, non-voided transactions count (picked/packed fulfilments are excluded).
    */
   function demandByItem(locationIds, window, excluded) {
@@ -201,6 +236,40 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     return `<a target="_blank" href="/app/accounting/transactions/workord.nl?assemblyitem=${encodeURIComponent(row.id)}&quantity=${encodeURIComponent(row.replenish)}&whence=">Create WO</a>`;
   }
 
+  const traceLink = (r, text) => (text && r.traceUrl ? `<a target="_blank" title="Show the transaction lines behind this figure" href="${esc(r.traceUrl)}">${text}</a>` : text);
+
+  const TYPE_LABEL = { ItemShip: 'Item Fulfilment', WOCompl: 'WO Completion', WOIssue: 'WO Issue' };
+
+  /** Drill-down page body: every candidate line for one item, with what was counted and why. */
+  function renderTrace(lines, settings, itemId) {
+    const name = lines.length ? lines[0].itemname : `Item ${itemId}`;
+    let fulfilled = 0, consumed = 0, skipped = 0;
+    const body = lines.map(l => {
+      const counted = num(l.counted) === 1 ? -num(l.quantity) : 0;
+      if (!counted) skipped++; else if (l.type === 'ItemShip') fulfilled += counted; else consumed += counted;
+      const customer = l.type === 'ItemShip' ? l.customer : l.wocustomer;
+      return `<tr class="${counted ? '' : 'usm-skip'}"><td>${esc(l.trandate)}</td><td>${esc(TYPE_LABEL[l.type] || l.type)}</td>
+<td><a target="_blank" href="/app/accounting/transactions/transaction.nl?id=${encodeURIComponent(l.tranid_internal)}">${esc(l.tranid)}</a></td>
+<td>${esc(l.createdfrom)}</td><td>${esc(customer)}</td><td class="usm-num">${esc(fmt(l.quantity, 2))}</td><td>${l.iscogs === 'T' ? 'Yes' : ''}</td>
+<td class="usm-num">${counted ? esc(fmt(counted, 2)) : ''}</td><td>${esc(lineReason(l, settings.excluded))}</td></tr>`;
+    }).join('');
+    return `
+<style>
+  .usm-wrap{overflow-x:auto;font-size:12px}
+  table.usm{border-collapse:collapse}
+  table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;white-space:nowrap}
+  table.usm td{padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap}
+  table.usm td.usm-num{text-align:right}
+  tr.usm-skip td{color:#999}
+  .usm-note{margin:6px 0 10px;font-size:13px}
+</style>
+<div class="usm-note"><b>${esc(name)}</b>: transaction lines at this location from ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}.
+ Counted: Fulfilled <b>${esc(fmt(fulfilled, 2))}</b>, WO Consumed <b>${esc(fmt(consumed, 2))}</b>. ${esc(skipped)} line${skipped === 1 ? '' : 's'} shown in grey ${skipped === 1 ? 'is' : 'are'} not counted.
+ Line quantity is NetSuite's transaction line quantity (negative = stock out).</div>
+<div class="usm-wrap"><table class="usm"><thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Created From</th><th>Customer</th><th>Line Quantity</th><th>COGS Line</th><th>Counted</th><th>Reason</th></tr></thead>
+<tbody>${body}</tbody></table></div>`;
+  }
+
   const LIGHT_ORDER = { red: 0, amber: 1, green: 2, '': 3 };
   const LIGHT_LABEL = { red: 'Red', amber: 'Amber', green: 'Green', '': '' };
   const LIGHT_TITLE = { red: 'Below 50% of recommended cover', amber: '50% to 100% of recommended cover', green: 'At or above recommended cover' };
@@ -220,8 +289,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     ['Available', r => blank(r.available), r => r.available],
     ["WO's", r => blank(r.onOrder), r => r.onOrder],
     ['Qty to Replenish', r => fmt(r.replenish), r => r.replenish],
-    ['Fulfilled', r => blank(r.fulfilled), r => r.fulfilled],
-    ['WO Consumed', r => blank(r.consumed), r => r.consumed],
+    ['Fulfilled', r => traceLink(r, blank(r.fulfilled)), r => r.fulfilled],
+    ['WO Consumed', r => traceLink(r, blank(r.consumed)), r => r.consumed],
     ['Avg Weekly Demand', r => blank(r.avgWeekly, 1), r => r.avgWeekly],
     ['Recommended Stock', r => blank(r.recommended), r => r.recommended],
     ['Recommended vs Preferred', r => (r.vsPreferred > 0 ? '+' : '') + fmt(r.vsPreferred), r => r.vsPreferred],
@@ -281,7 +350,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
 </style>
 <div class="usm-note">${esc(rows.length)} items. Demand ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}
  (${esc(fmt(settings.window.weeks, 1))} weeks): posted item fulfilments plus components consumed by work order completions and issues, in base units.${settings.excluded && settings.excluded.length ? ` <b>Excluding ${esc(settings.excluded.length)} customer${settings.excluded.length === 1 ? '' : 's'}</b> (their fulfilments and work orders).` : ''}
- Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Cover Status: green = weeks cover at or above ${esc(settings.weeks)} weeks, amber = 50% to 100% of it, red = below 50%. Click a column heading to sort.</div>
+ Recommended stock = average weekly demand &times; ${esc(settings.weeks)} weeks. Cover Status: green = weeks cover at or above ${esc(settings.weeks)} weeks, amber = 50% to 100% of it, red = below 50%. Click a Fulfilled or WO Consumed figure to see the transaction lines behind it. Click a column heading to sort.</div>
 ${columnChooser()}
 <style id="usm-hide"></style>
 <div class="usm-wrap"><table class="usm" id="usm"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
@@ -326,6 +395,8 @@ apply();})();
       weeks: clampInt(p.custpage_weeks, 1, 52, DEFAULTS.weeks),
       jtape: ['T', 'F'].includes(p.custpage_jtape) ? p.custpage_jtape : '',
       excluded: excludedCustomers(p.custpage_exclude),
+      traceItem: RECORD_ID.test(String(p.custpage_trace || '')) ? String(p.custpage_trace) : '',
+      traceLocation: RECORD_ID.test(String(p.custpage_loc || '')) ? String(p.custpage_loc) : '',
       csv: p.custpage_csv === 'T',
       hidden: hiddenColumns(p.custpage_hide),
       window: demandWindow(new Date(), months)
@@ -346,9 +417,25 @@ apply();})();
     }
 
     const settings = settingsFrom(request);
+    const script = runtime.getCurrentScript();
+    const base = `/app/site/hosting/scriptlet.nl?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}`
+      + `&custpage_months=${settings.months}&custpage_exclude=${encodeURIComponent(settings.excluded.join(','))}`;
+
+    if (settings.traceItem && settings.traceLocation) {
+      const lines = [];
+      const paged = query.runSuiteQLPaged({ query: traceSql(settings.traceItem, settings.traceLocation, settings.excluded), params: [ymd(settings.window.start), ymd(settings.window.end)], pageSize: 1000 });
+      paged.pageRanges.forEach(range => paged.fetch({ index: range.index }).data.asMappedResults().forEach(l => lines.push(l)));
+      const traceForm = serverWidget.createForm({ title: 'UK Stock Monitor: demand lines' });
+      const out = traceForm.addField({ id: 'custpage_trace_html', type: serverWidget.FieldType.INLINEHTML, label: 'Lines' });
+      out.defaultValue = renderTrace(lines, settings, settings.traceItem);
+      response.writePage(traceForm);
+      return;
+    }
+
     const stock = stockRows(settings, settings.jtape);
     const demand = demandByItem(stock.map(r => r.locationId), settings.window, settings.excluded);
-    const rows = stock.map(r => evaluate(r, demand[`${r.id}|${r.locationId}`], settings.window, settings.weeks));
+    const rows = stock.map(r => ({ ...evaluate(r, demand[`${r.id}|${r.locationId}`], settings.window, settings.weeks),
+      traceUrl: `${base}&custpage_trace=${encodeURIComponent(r.id)}&custpage_loc=${encodeURIComponent(r.locationId)}` }));
 
     if (settings.csv) {
       response.writeFile({ file: file.create({ name: `uk-stock-monitor-${ymd(settings.window.end)}.csv`, fileType: file.Type.CSV, contents: toCsv(rows, settings.hidden) }), isInline: false });
@@ -370,7 +457,6 @@ apply();})();
     exclude.setHelpText({ help: 'Fulfilments to these customers, and work orders for these customers, are left out of average weekly demand and the recommended stock.' });
     if (settings.excluded.length) exclude.defaultValue = settings.excluded;
     form.addSubmitButton({ label: 'Refresh' });
-    const script = runtime.getCurrentScript();
     const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_exclude: settings.excluded.join(','), custpage_csv: 'T' };
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
     form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'');})` });
@@ -379,5 +465,5 @@ apply();})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });
