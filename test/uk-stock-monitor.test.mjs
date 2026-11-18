@@ -216,3 +216,15 @@ test('drill-down rows carry type and counted flags for the filter, preset from t
   assert.ok(cell('Fulfilled').includes('custpage_ttype=fulfilled'));
   assert.ok(cell('WO Consumed').includes('custpage_ttype=consumed'));
 });
+
+test('a completion never counts the assembly it builds, only its components', () => {
+  const { countedSql, traceSql, lineReason } = exported._test;
+  const rule = countedSql([]);
+  assert.ok(rule.includes("AND NOT (t.type = 'WOCompl' AND EXISTS ("));
+  assert.ok(rule.includes("m.transaction = t.id AND m.mainline = 'T' AND m.item = tl.item"));
+  assert.ok(traceSql('42', '1').includes("THEN 'T' ELSE 'F' END AS isbuilt"));
+  // COM1043 building 1011.2050: main line +200 and offset line -200 are both the built assembly.
+  assert.equal(lineReason({ counted: 0, iscogs: 'F', isbuilt: 'T', mainline: 'F', quantity: -200, type: 'WOCompl' }), 'Assembly being built, not consumption');
+  // COM1734 consuming 1011.2050 as a component still counts.
+  assert.equal(lineReason({ counted: 1, iscogs: 'F', isbuilt: 'F', mainline: 'F', quantity: -1, type: 'WOCompl' }), 'Counted');
+});

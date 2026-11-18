@@ -143,6 +143,13 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
         AND t.trandate >= TO_DATE(?, 'YYYY-MM-DD') AND t.trandate <= TO_DATE(?, 'YYYY-MM-DD')
         AND t.posting = 'T' AND t.voided = 'F'`;
   /**
+   * True for a completion line of the assembly being built: the completion's main line item. A completion
+   * carries the built assembly on its main line and again on an offsetting negative line; neither is demand.
+   */
+  const BUILT_ASSEMBLY = `t.type = 'WOCompl' AND EXISTS (
+          SELECT 1 FROM transactionline m WHERE m.transaction = t.id AND m.mainline = 'T' AND m.item = tl.item)`;
+
+  /**
    * Which lines count as demand. Only stock leaving the location counts (negative quantity): the item line
    * on a fulfilment and component lines on completions and issues, never the assembly a completion adds.
    * Cost of goods sold lines repeat the item on fulfilments and are never counted. Excluded customers are
@@ -153,7 +160,8 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
    */
   function countedSql(customers) {
     const list = customers.join(',');
-    return `tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F' AND (tl.mainline = 'F' OR t.type = 'ItemShip')${customers.length ? `
+    return `tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F' AND (tl.mainline = 'F' OR t.type = 'ItemShip')
+        AND NOT (${BUILT_ASSEMBLY})${customers.length ? `
         AND NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (${list}))
         AND NOT (t.type IN ('WOCompl', 'WOIssue') AND t.id IN (
           SELECT h.transaction FROM transactionline h, transaction w
@@ -188,6 +196,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
       SELECT t.id AS tranid_internal, t.tranid AS tranid, t.type AS type, TO_CHAR(t.trandate, 'YYYY-MM-DD') AS trandate,
              BUILTIN.DF(tl.item) AS itemname, BUILTIN.DF(t.entity) AS customer, NVL(t.entity, 0) AS customerid,
              tl.id AS lineid, tl.quantity AS quantity, NVL(tl.iscogs, 'F') AS iscogs, tl.mainline AS mainline,
+             CASE WHEN ${BUILT_ASSEMBLY} THEN 'T' ELSE 'F' END AS isbuilt,
              CASE WHEN ${countedSql(customers)} THEN 1 ELSE 0 END AS counted
       FROM transactionline tl
       JOIN transaction t ON t.id = tl.transaction
@@ -220,6 +229,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   function lineReason(line, excluded = []) {
     if (num(line.counted) === 1) return 'Counted';
     if (line.iscogs === 'T') return 'Cost of goods line (duplicate of the item line)';
+    if (line.isbuilt === 'T') return 'Assembly being built, not consumption';
     if (line.mainline === 'T' && line.type !== 'ItemShip') return 'Main line of the work order transaction';
     if (num(line.quantity) >= 0) return line.type === 'ItemShip' ? 'Not stock out (positive quantity)' : 'Output or stock in, not consumption';
     const customer = String(line.type === 'ItemShip' ? line.customerid : line.wocustomerid);
