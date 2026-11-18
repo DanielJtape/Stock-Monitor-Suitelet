@@ -103,9 +103,10 @@ test('every column in the table carries its column key for the chooser', () => {
   const html = renderTable([row], { window: { start: new Date(2026, 4, 17), end: new Date(2026, 10, 17), weeks: 26 }, weeks: 6 });
   for (const c of COLUMNS) {
     assert.equal(html.split(`class="c-${colKey(c)}`).length - 1, 2, colKey(c));
-    if (colKey(c) !== 'name') assert.ok(html.includes(`data-key="${colKey(c)}"`), colKey(c));
+    if (colKey(c) !== 'name') assert.ok(html.includes(`<input type="checkbox" data-key="${colKey(c)}"`), colKey(c));
+    assert.ok(html.includes(`data-key="${colKey(c)}" draggable="true"`), colKey(c));
   }
-  assert.ok(!html.includes('data-key="name"'));
+  assert.ok(!html.includes('<input type="checkbox" data-key="name"'));
 });
 
 test('excluded customers accept internal IDs only, from comma or multiselect lists', () => {
@@ -227,4 +228,16 @@ test('a completion never counts the assembly it builds, only its components', ()
   assert.equal(lineReason({ counted: 0, iscogs: 'F', isbuilt: 'T', mainline: 'F', quantity: -200, type: 'WOCompl' }), 'Assembly being built, not consumption');
   // COM1734 consuming 1011.2050 as a component still counts.
   assert.equal(lineReason({ counted: 1, iscogs: 'F', isbuilt: 'F', mainline: 'F', quantity: -1, type: 'WOCompl' }), 'Counted');
+});
+
+test('csv follows the viewer column order, ignores unknown keys and keeps every column', () => {
+  const { orderedColumns, COLUMNS, colKey } = exported._test;
+  const keys = orderedColumns('weeks-cover,bogus,name,weeks-cover').map(colKey);
+  assert.deepEqual(keys.slice(0, 2), ['weeks-cover', 'name']);
+  assert.equal(keys.length, COLUMNS.length);
+  const row = evaluate({ id: '1', name: 'A', available: 5 }, null, { weeks: 26 }, 6);
+  const head = toCsv([row], ['description'], 'cover-status,name').split('\r\n')[0].split(',');
+  assert.deepEqual(head.slice(0, 2), ['Cover Status', 'Name']);
+  assert.equal(head[head.length - 1], 'Location');
+  assert.ok(!head.includes('Description') && !head.includes('Create WO'));
 });

@@ -25,6 +25,8 @@ Exclude customers from demand (multi-select) leaves chosen customers out of Fulf
 
 Click any Fulfilled or WO Consumed figure to open a drill-down listing every transaction line for that item at the location in the window: date, type, number (linked), created from, customer, NetSuite's line quantity, whether it is a cost of goods line, the quantity counted and the reason any line is not counted. Use it to reconcile a figure against your own numbers. A Type filter (All, Item Fulfilment, WO Completion + WO Issue, WO Completion, WO Issue) and a Counted lines only box narrow the list and show the counted total of the visible lines; clicking Fulfilled opens it on Item Fulfilment and WO Consumed on WO Completion + WO Issue. The drill-down uses the same query filters as the main list and says whether its lines add up to the main figure.
 
+Drag a column heading left or right to move the column. The order is saved in the browser like the column choice, the CSV export follows it, and Reset column order (in Choose columns) restores the original order.
+
 Choose columns (above the table) shows or hides any column except Name straight away, without re-running the search. The choice is saved in the browser, so each person keeps their own layout on that computer; Show all restores every column. Column headings sort the table.
 
 Row colours: orange = Special Work Order Item; yellow = available + on order at or below the replenish level with nothing on order; light green = at or below the replenish level but work orders are open. Adjust in `evaluate()` if the saved search's yellow/green rules differ.

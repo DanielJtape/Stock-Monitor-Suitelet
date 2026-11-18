@@ -375,11 +375,11 @@ sel.addEventListener('change',apply);only.addEventListener('change',apply);apply
     const boxes = COLUMNS.filter(c => colKey(c) !== ALWAYS_SHOWN).map(c =>
       `<label><input type="checkbox" data-key="${esc(colKey(c))}" checked> ${esc(c[0])}</label>`).join('');
     return `<div class="usm-cols"><button type="button" id="usm-cols-btn">Choose columns &#9662;</button>
-<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a></div></div></div>`;
+<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a> &middot; <a href="#" id="usm-cols-order">Reset column order</a></div></div></div>`;
   }
 
   function renderTable(rows, settings) {
-    const head = COLUMNS.map((c, i) => `<th data-col="${i}" class="c-${colKey(c)}">${esc(c[0])}</th>`).join('');
+    const head = COLUMNS.map((c, i) => `<th data-col="${i}" data-key="${colKey(c)}" draggable="true" title="Click to sort, drag to move" class="c-${colKey(c)}">${esc(c[0])}</th>`).join('');
     const body = rows.map(r => `<tr class="${r.highlight ? 'usm-' + r.highlight : ''}">${COLUMNS.map((c, i) => {
       const sortValue = c[2](r);
       const align = NUMERIC.has(c[0]) ? ' usm-num' : c[0] === 'Cover Status' ? ' usm-center' : '';
@@ -405,6 +405,8 @@ sel.addEventListener('change',apply);only.addEventListener('change',apply);apply
   .usm-cols button{font-size:12px;padding:3px 10px;cursor:pointer}
   #usm-cols-box{position:absolute;z-index:10;background:#fff;border:1px solid #ccc;box-shadow:0 2px 8px rgba(0,0,0,.2);padding:8px 12px;margin-top:4px;columns:2;column-gap:24px;font-size:12px}
   #usm-cols-box label{display:block;white-space:nowrap;padding:2px 0;break-inside:avoid}
+  table.usm th.usm-dragging{opacity:.4}
+  table.usm th.usm-drop{box-shadow:inset 3px 0 0 #1f6fd1}
   .usm-cols-actions{padding-top:6px;break-inside:avoid}
   .usm-progress{overflow:hidden;height:16px;width:64px;background:#c23b22;border-radius:4px;box-shadow:inset 0 1px 2px rgba(0,0,0,.1)}
   .usm-bar{float:left;height:100%;font-size:10px;line-height:16px;color:#fff;text-align:center;background:#22c23b;box-shadow:inset 0 -1px 0 rgba(0,0,0,.15)}
@@ -417,10 +419,30 @@ ${columnChooser()}
 <div class="usm-wrap"><table class="usm" id="usm"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
 <script>
 (function(){var t=document.getElementById('usm');if(!t)return;var dir={};
-t.querySelectorAll('th').forEach(function(th){th.addEventListener('click',function(){var i=+th.getAttribute('data-col');dir[i]=!dir[i];
-var rows=[].slice.call(t.tBodies[0].rows);rows.sort(function(a,b){var x=a.cells[i].getAttribute('data-sort'),y=b.cells[i].getAttribute('data-sort');
-var nx=parseFloat(x),ny=parseFloat(y);var c=(!isNaN(nx)&&!isNaN(ny))?nx-ny:String(x).localeCompare(String(y));return dir[i]?c:-c;});
+function cell(row,k){return row.querySelector('.c-'+k);}
+t.querySelectorAll('th').forEach(function(th){th.addEventListener('click',function(){var k=th.getAttribute('data-key');dir[k]=!dir[k];
+var rows=[].slice.call(t.tBodies[0].rows);rows.sort(function(a,b){var x=cell(a,k).getAttribute('data-sort'),y=cell(b,k).getAttribute('data-sort');
+var nx=parseFloat(x),ny=parseFloat(y);var c=(!isNaN(nx)&&!isNaN(ny))?nx-ny:String(x).localeCompare(String(y));return dir[k]?c:-c;});
 rows.forEach(function(r){t.tBodies[0].appendChild(r);});});});})();
+(function(){var KEY='usm-column-order',t=document.getElementById('usm');if(!t)return;
+var head=t.tHead.rows[0],initial=[].map.call(head.cells,function(c){return c.getAttribute('data-key');}),dragged=null;
+function current(){return [].map.call(head.cells,function(c){return c.getAttribute('data-key');});}
+function arrange(order){var keys=order.filter(function(k){return initial.indexOf(k)>=0;});
+initial.forEach(function(k){if(keys.indexOf(k)<0)keys.push(k);});
+[].slice.call(t.rows).forEach(function(row){keys.forEach(function(k){var c=row.querySelector('.c-'+k);if(c)row.appendChild(c);});});
+try{window.localStorage.setItem(KEY,keys.join(','));}catch(e){}}
+window.usmColumnOrder=function(){return current().join(',');};
+window.usmResetColumnOrder=function(){arrange(initial);};
+[].forEach.call(head.cells,function(th){
+th.addEventListener('dragstart',function(e){dragged=th.getAttribute('data-key');th.classList.add('usm-dragging');try{e.dataTransfer.setData('text/plain',dragged);}catch(x){}e.dataTransfer.effectAllowed='move';});
+th.addEventListener('dragend',function(){th.classList.remove('usm-dragging');[].forEach.call(head.cells,function(c){c.classList.remove('usm-drop');});dragged=null;});
+th.addEventListener('dragover',function(e){if(!dragged)return;e.preventDefault();e.dataTransfer.dropEffect='move';th.classList.add('usm-drop');});
+th.addEventListener('dragleave',function(){th.classList.remove('usm-drop');});
+th.addEventListener('drop',function(e){e.preventDefault();th.classList.remove('usm-drop');var target=th.getAttribute('data-key');if(!dragged||dragged===target)return;
+var order=current(),from=order.indexOf(dragged);order.splice(from,1);var to=order.indexOf(target);
+var rect=th.getBoundingClientRect();if(e.clientX>rect.left+rect.width/2)to++;order.splice(to,0,dragged);arrange(order);});});
+var saved='';try{saved=window.localStorage.getItem(KEY)||'';}catch(e){}
+if(saved)arrange(saved.split(','));})();
 (function(){var KEY='usm-hidden-columns',box=document.getElementById('usm-cols-box'),btn=document.getElementById('usm-cols-btn'),style=document.getElementById('usm-hide');
 if(!box||!btn||!style)return;var inputs=[].slice.call(box.querySelectorAll('input[data-key]'));var hidden=[];
 try{hidden=(window.localStorage.getItem(KEY)||'').split(',').filter(Boolean);}catch(e){}
@@ -431,14 +453,22 @@ window.usmHiddenColumns=function(){return hidden.join(',');};
 inputs.forEach(function(i){i.addEventListener('change',function(){hidden=inputs.filter(function(x){return !x.checked;}).map(function(x){return x.getAttribute('data-key');});apply();});});
 btn.addEventListener('click',function(e){e.preventDefault();box.style.display=box.style.display==='none'?'':'none';});
 document.getElementById('usm-cols-all').addEventListener('click',function(e){e.preventDefault();hidden=[];apply();});
+document.getElementById('usm-cols-order').addEventListener('click',function(e){e.preventDefault();if(window.usmResetColumnOrder)window.usmResetColumnOrder();});
 document.addEventListener('click',function(e){if(!box.contains(e.target)&&e.target!==btn)box.style.display='none';});
 apply();})();
 </script>`;
   }
 
-  function toCsv(rows, hidden = []) {
+  /** Columns in the order a viewer arranged them; unknown keys are ignored and missing columns keep their place at the end. */
+  function orderedColumns(order) {
+    const keys = String(order || '').split(',').map(k => k.trim());
+    const picked = keys.map(k => COLUMNS.find(c => colKey(c) === k)).filter(Boolean);
+    return [...new Set(picked.concat(COLUMNS))];
+  }
+
+  function toCsv(rows, hidden = [], order = '') {
     const cell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-    const cols = COLUMNS.slice(0, -1).filter(c => !hidden.includes(colKey(c)));
+    const cols = orderedColumns(order).filter(c => colKey(c) !== 'create-wo' && !hidden.includes(colKey(c)));
     const headers = cols.map(c => c[0]).concat('Location');
     const lines = rows.map(r => cols.map(c => (c[3] || c[2])(r)).concat(r.location).map(cell).join(','));
     return [headers.map(cell).join(',')].concat(lines).join('\r\n');
@@ -461,6 +491,7 @@ apply();})();
       traceLocation: RECORD_ID.test(String(p.custpage_loc || '')) ? String(p.custpage_loc) : '',
       csv: p.custpage_csv === 'T',
       hidden: hiddenColumns(p.custpage_hide),
+      order: String(p.custpage_order || '').slice(0, 2000),
       window: demandWindow(new Date(), months)
     };
   }
@@ -513,7 +544,7 @@ apply();})();
       traceUrl: `${base}&custpage_trace=${encodeURIComponent(r.id)}&custpage_loc=${encodeURIComponent(r.locationId)}` }));
 
     if (settings.csv) {
-      response.writeFile({ file: file.create({ name: `uk-stock-monitor-${ymd(settings.window.end)}.csv`, fileType: file.Type.CSV, contents: toCsv(rows, settings.hidden) }), isInline: false });
+      response.writeFile({ file: file.create({ name: `uk-stock-monitor-${ymd(settings.window.end)}.csv`, fileType: file.Type.CSV, contents: toCsv(rows, settings.hidden, settings.order) }), isInline: false });
       return;
     }
 
@@ -534,11 +565,11 @@ apply();})();
     form.addSubmitButton({ label: 'Refresh' });
     const csvParams = { custpage_months: settings.months, custpage_weeks: settings.weeks, custpage_jtape: settings.jtape, custpage_exclude: settings.excluded.join(','), custpage_csv: 'T' };
     const qs = Object.keys(csvParams).map(k => `${k}=${encodeURIComponent(csvParams[k])}`).join('&');
-    form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'');})` });
+    form.addButton({ id: 'custpage_export', label: 'Export CSV', functionName: `(function(){window.location.href=window.location.pathname+'?script=${encodeURIComponent(script.id)}&deploy=${encodeURIComponent(script.deploymentId)}&${qs}'+(window.usmHiddenColumns?'&custpage_hide='+encodeURIComponent(window.usmHiddenColumns()):'')+(window.usmColumnOrder?'&custpage_order='+encodeURIComponent(window.usmColumnOrder()):'');})` });
     const html = form.addField({ id: 'custpage_results', type: serverWidget.FieldType.INLINEHTML, label: 'Results' });
     html.defaultValue = renderTable(rows, settings);
     response.writePage(form);
   }
 
-  return { onRequest, _test: { sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });
