@@ -262,3 +262,40 @@ test('default excluded customers apply until the viewer submits their own choice
   assert.deepEqual(chosenExclusions({ custpage_exset: 'T', custpage_exclude: '303' }, '101'), ['303']);
   assert.deepEqual(chosenExclusions({ custpage_exset: 'T', custpage_exclude: '' }, '101'), []);
 });
+
+test('weekly demand buckets counted lines into weeks from the window start and flags outliers', () => {
+  const { weeklyDemand } = exported._test;
+  const window = demandWindow(new Date(2026, 10, 18), 6);
+  const lines = [
+    { counted: 1, type: 'ItemShip', quantity: -10, trandate: '2026-05-18', tranid: 'IF1', tranid_internal: 1, customer: 'A' },
+    { counted: 1, type: 'ItemShip', quantity: -10, trandate: '2026-05-25', tranid: 'IF2', tranid_internal: 2, customer: 'B' },
+    { counted: 1, type: 'ItemShip', quantity: -500, trandate: '2026-06-01', tranid: 'IF3', tranid_internal: 3, customer: 'GPI' },
+    { counted: 1, type: 'ItemShip', quantity: -30, trandate: '2026-06-01', tranid: 'IF3', tranid_internal: 3, customer: 'GPI' },
+    { counted: 1, type: 'WOCompl', quantity: -6, trandate: '2026-06-03', tranid: 'COM1', tranid_internal: 4, wocustomer: 'C' },
+    { counted: 0, type: 'ItemShip', quantity: 80, trandate: '2026-06-03', tranid: 'IF9', tranid_internal: 9 },
+    { counted: 1, type: 'ItemShip', quantity: -4, trandate: '2026-11-18', tranid: 'IF4', tranid_internal: 5 }
+  ];
+  const d = weeklyDemand(lines, window);
+  assert.equal(d.weeks.length, 27);
+  assert.equal(d.weeks[0].start, '2026-05-18');
+  assert.equal(d.weeks[0].end, '2026-05-24');
+  assert.equal(d.weeks[2].fulfilled, 530);
+  assert.equal(d.weeks[2].consumed, 6);
+  assert.equal(d.weeks[26].partial, true);
+  assert.equal(d.weeks[26].fulfilled, 4);
+  assert.equal(d.total, 560);
+  assert.equal(d.average, Math.round((560 / window.weeks) * 100) / 100);
+  assert.equal(d.median, 0);
+  assert.deepEqual(d.top[0], { id: '3', number: 'IF3', date: '2026-06-01', type: 'Item Fulfilment', customer: 'GPI', qty: 530, share: 94.6 });
+  assert.equal(d.largestShare, 94.6);
+  assert.equal(d.averageWithoutLargest, Math.round((30 / window.weeks) * 100) / 100);
+  assert.equal(d.weeks[2].txns[0].number, 'IF3');
+});
+
+test('chart button appears only for rows with demand and escapes the item name', () => {
+  const { chartButton } = exported._test;
+  assert.equal(chartButton({ traceUrl: '/x', avgWeekly: 0 }), '');
+  const html = chartButton({ traceUrl: '/x?a=1', avgWeekly: 5, name: '<b>A</b>', description: 'Tape' });
+  assert.ok(html.includes('data-url="/x?a=1&amp;custpage_weekly=T"'));
+  assert.ok(html.includes('&lt;b&gt;A&lt;/b&gt;') && !html.includes('<b>A</b>'));
+});

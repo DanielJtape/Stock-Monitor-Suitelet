@@ -31,6 +31,12 @@ Default layout: Name, Description, % Stocked, % Available, Recommended Stock, Pr
 
 Drag a column heading left or right to move the column. The order is saved in the browser like the column choice, the CSV export follows it.
 
+The small chart button in Avg Weekly Demand opens a pop-up of demand per week for that item, to judge whether the average is inflated by one-off large orders:
+- Stacked weekly bars (Fulfilled, WO Consumed) with the average and the median full week drawn across. Weeks are 7-day periods from the start of the window, the same basis as the average; the last one may be a part week (paler).
+- Average per week, median full week, average without the largest transaction, and the largest transaction's share of the total.
+- Hover a week for its totals and its largest transactions; below the chart, the eight largest transactions with links.
+It uses exactly the counted drill-down lines, including customer exclusions.
+
 Choose columns (above the table) shows or hides any column except Name straight away, without re-running the search. The choice is saved in the browser, so each person keeps their own layout on that computer; Show all restores every column. Column headings sort the table.
 
 Row colours: orange = Special Work Order Item; yellow = available + on order at or below the replenish level with nothing on order; light green = at or below the replenish level but work orders are open. Adjust in `evaluate()` if the saved search's yellow/green rules differ.
