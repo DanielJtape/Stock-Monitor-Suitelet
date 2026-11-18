@@ -348,32 +348,34 @@ ${FIT_SCRIPT}
   const NUMERIC = new Set(['Preferred Stock', 'Replenish Level', 'Current Stock', 'Committed', 'Available', "WO's", 'Qty to Replenish', 'Fulfilled',
     'WO Consumed', 'Avg Weekly Demand', 'Recommended Stock', 'Recommended vs Preferred', 'Weeks Cover', 'Shortfall to Recommended']);
 
+  // Default layout: this order, with DEFAULT_HIDDEN columns hidden. Viewers can change both on the page.
   const COLUMNS = [
     ['Name', r => `<a target="_blank" href="/app/common/item/item.nl?id=${encodeURIComponent(r.id)}">${esc(r.name)}</a>`, r => r.name],
     ['Description', r => esc(r.description), r => r.description],
     ['% Stocked', r => bar(r.pctStocked), r => r.pctStocked],
     ['% Available', r => bar(r.pctAvailable), r => r.pctAvailable],
+    ['Recommended Stock', r => blank(r.recommended), r => r.recommended],
     ['Preferred Stock', r => fmt(r.preferred), r => r.preferred],
     ['Replenish Level', r => fmt(r.reorderPoint), r => r.reorderPoint],
     ['Current Stock', r => blank(r.onHand), r => r.onHand],
     ['Committed', r => blank(r.committed), r => r.committed],
     ['Available', r => blank(r.available), r => r.available],
-    ["WO's", r => blank(r.onOrder), r => r.onOrder],
-    ['Qty to Replenish', r => fmt(r.replenish), r => r.replenish],
-    ['Fulfilled', r => traceLink(r, blank(r.fulfilled), 'fulfilled'), r => r.fulfilled],
-    ['WO Consumed', r => traceLink(r, blank(r.consumed), 'consumed'), r => r.consumed],
     ['Avg Weekly Demand', r => blank(r.avgWeekly, 1), r => r.avgWeekly],
-    ['Recommended Stock', r => blank(r.recommended), r => r.recommended],
-    ['Recommended vs Preferred', r => (r.vsPreferred > 0 ? '+' : '') + fmt(r.vsPreferred), r => r.vsPreferred],
     ['Weeks Cover', r => (r.weeksCover == null ? '' : fmt(r.weeksCover, 1)), r => (r.weeksCover == null ? 99999 : r.weeksCover), r => (r.weeksCover == null ? '' : r.weeksCover)],
     ['Cover Status', r => light(r.coverStatus), r => LIGHT_ORDER[r.coverStatus], r => LIGHT_LABEL[r.coverStatus]],
-    ['Shortfall to Recommended', r => blank(r.shortfall), r => r.shortfall],
-    ['Create WO', woLink, () => '']
+    ['Qty to Replenish', r => fmt(r.replenish), r => r.replenish],
+    ['Create WO', woLink, () => ''],
+    ["WO's", r => blank(r.onOrder), r => r.onOrder],
+    ['Fulfilled', r => traceLink(r, blank(r.fulfilled), 'fulfilled'), r => r.fulfilled],
+    ['WO Consumed', r => traceLink(r, blank(r.consumed), 'consumed'), r => r.consumed],
+    ['Recommended vs Preferred', r => (r.vsPreferred > 0 ? '+' : '') + fmt(r.vsPreferred), r => r.vsPreferred],
+    ['Shortfall to Recommended', r => blank(r.shortfall), r => r.shortfall]
   ];
 
   /** Stable key per column, used for the column chooser, its saved choice and the CSV export. */
   const colKey = c => c[0].toLowerCase().replace(/%/g, 'pct').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const ALWAYS_SHOWN = 'name';
+  const DEFAULT_HIDDEN = ['fulfilled', 'wo-consumed', 'recommended-vs-preferred', 'shortfall-to-recommended'];
 
   /** Column keys to hide, from a comma list; unknown keys and Name are ignored. */
   function hiddenColumns(value) {
@@ -385,7 +387,7 @@ ${FIT_SCRIPT}
     const boxes = COLUMNS.filter(c => colKey(c) !== ALWAYS_SHOWN).map(c =>
       `<label><input type="checkbox" data-key="${esc(colKey(c))}" checked> ${esc(c[0])}</label>`).join('');
     return `<div class="usm-cols"><button type="button" id="usm-cols-btn">Choose columns &#9662;</button>
-<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a> &middot; <a href="#" id="usm-cols-order">Reset column order</a></div></div></div>`;
+<div id="usm-cols-box" style="display:none">${boxes}<div class="usm-cols-actions"><a href="#" id="usm-cols-all">Show all</a> &middot; <a href="#" id="usm-cols-order">Restore default layout</a></div></div></div>`;
   }
 
   function renderTable(rows, settings) {
@@ -456,7 +458,8 @@ if(saved)arrange(saved.split(','));})();
 ${FIT_SCRIPT}
 (function(){var KEY='usm-hidden-columns',box=document.getElementById('usm-cols-box'),btn=document.getElementById('usm-cols-btn'),style=document.getElementById('usm-hide');
 if(!box||!btn||!style)return;var inputs=[].slice.call(box.querySelectorAll('input[data-key]'));var hidden=[];
-try{hidden=(window.localStorage.getItem(KEY)||'').split(',').filter(Boolean);}catch(e){}
+var DEFAULT=${JSON.stringify(DEFAULT_HIDDEN)},saved=null;try{saved=window.localStorage.getItem(KEY);}catch(e){}
+hidden=saved===null?DEFAULT.slice():saved.split(',').filter(Boolean);
 function apply(){style.textContent=hidden.map(function(k){return 'table.usm .c-'+k+'{display:none}';}).join('');
 inputs.forEach(function(i){i.checked=hidden.indexOf(i.getAttribute('data-key'))<0;});
 try{window.localStorage.setItem(KEY,hidden.join(','));}catch(e){}}
@@ -464,7 +467,7 @@ window.usmHiddenColumns=function(){return hidden.join(',');};
 inputs.forEach(function(i){i.addEventListener('change',function(){hidden=inputs.filter(function(x){return !x.checked;}).map(function(x){return x.getAttribute('data-key');});apply();});});
 btn.addEventListener('click',function(e){e.preventDefault();box.style.display=box.style.display==='none'?'':'none';});
 document.getElementById('usm-cols-all').addEventListener('click',function(e){e.preventDefault();hidden=[];apply();});
-document.getElementById('usm-cols-order').addEventListener('click',function(e){e.preventDefault();if(window.usmResetColumnOrder)window.usmResetColumnOrder();});
+document.getElementById('usm-cols-order').addEventListener('click',function(e){e.preventDefault();hidden=DEFAULT.slice();apply();if(window.usmResetColumnOrder)window.usmResetColumnOrder();});
 document.addEventListener('click',function(e){if(!box.contains(e.target)&&e.target!==btn)box.style.display='none';});
 apply();})();
 </script>`;
@@ -582,5 +585,5 @@ apply();})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { DEFAULT_HIDDEN, orderedColumns, sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });

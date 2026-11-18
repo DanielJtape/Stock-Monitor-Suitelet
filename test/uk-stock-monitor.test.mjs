@@ -241,3 +241,14 @@ test('csv follows the viewer column order, ignores unknown keys and keeps every 
   assert.equal(head[head.length - 1], 'Location');
   assert.ok(!head.includes('Description') && !head.includes('Create WO'));
 });
+
+test('default layout matches the agreed column order and hidden columns', () => {
+  const { COLUMNS, DEFAULT_HIDDEN, renderTable } = exported._test;
+  assert.deepEqual(COLUMNS.map(c => c[0]), ['Name', 'Description', '% Stocked', '% Available', 'Recommended Stock', 'Preferred Stock',
+    'Replenish Level', 'Current Stock', 'Committed', 'Available', 'Avg Weekly Demand', 'Weeks Cover', 'Cover Status', 'Qty to Replenish',
+    'Create WO', "WO's", 'Fulfilled', 'WO Consumed', 'Recommended vs Preferred', 'Shortfall to Recommended']);
+  assert.deepEqual(DEFAULT_HIDDEN, ['fulfilled', 'wo-consumed', 'recommended-vs-preferred', 'shortfall-to-recommended']);
+  const html = renderTable([], { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18), weeks: 26 }, weeks: 6 });
+  assert.ok(html.includes(`var DEFAULT=${JSON.stringify(DEFAULT_HIDDEN)}`));
+  assert.ok(html.includes('Restore default layout'));
+});

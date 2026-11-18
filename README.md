@@ -27,7 +27,9 @@ Click any Fulfilled or WO Consumed figure to open a drill-down listing every tra
 
 The table sits in its own scroll box sized to the window, so the filters, buttons and notes stay on screen and the column headings stay at the top while you scroll the rows (or sideways). The drill-down works the same way.
 
-Drag a column heading left or right to move the column. The order is saved in the browser like the column choice, the CSV export follows it, and Reset column order (in Choose columns) restores the original order.
+Default layout: Name, Description, % Stocked, % Available, Recommended Stock, Preferred Stock, Replenish Level, Current Stock, Committed, Available, Avg Weekly Demand, Weeks Cover, Cover Status, Qty to Replenish, Create WO, WO's; Fulfilled, WO Consumed, Recommended vs Preferred and Shortfall to Recommended are hidden until ticked in Choose columns. A viewer's own changes override the default in their browser; Restore default layout (in Choose columns) goes back to it. Change the default with the COLUMNS order and DEFAULT_HIDDEN in the script.
+
+Drag a column heading left or right to move the column. The order is saved in the browser like the column choice, the CSV export follows it.
 
 Choose columns (above the table) shows or hides any column except Name straight away, without re-running the search. The choice is saved in the browser, so each person keeps their own layout on that computer; Show all restores every column. Column headings sort the table.
 
