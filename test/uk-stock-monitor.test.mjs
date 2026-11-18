@@ -126,8 +126,9 @@ test('demand query excludes customers on fulfilments and on the work order behin
   const { demandSql } = exported._test;
   const { sql } = demandSql(['1', '1', '5'], ['101', 'x', '202']);
   assert.ok(sql.includes("NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (101,202))"));
-  assert.ok(sql.includes("NOT (t.type IN ('WOCompl', 'WOIssue') AND NVL(wo.entity, 0) IN (101,202))"));
-  assert.ok(sql.includes("hdr.mainline = 'T'") && sql.includes("wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'"));
+  assert.ok(sql.includes("NOT (t.type IN ('WOCompl', 'WOIssue') AND t.id IN ("));
+  assert.ok(sql.includes("w.id = h.createdfrom AND w.type = 'WorkOrd' AND w.entity IN (101,202)"));
+  assert.ok(!/JOIN transactionline/.test(sql), 'no join that could drop lines');
   assert.ok(sql.includes('tl.location IN (1,5)'));
 });
 
@@ -163,4 +164,33 @@ test('trace explains why lines are not counted and totals the counted ones', () 
   assert.ok(html.includes('Fulfilled <b>10.00</b>'));
   assert.ok(html.includes('WO Consumed <b>4.00</b>'));
   assert.ok(html.includes('2 lines shown in grey are not counted'));
+});
+
+test('drill-down lists lines with the same source and filters as the main figure', () => {
+  const { demandSql, traceSql } = exported._test;
+  for (const excluded of [[], ['101']]) {
+    const main = demandSql(['1'], excluded, '42').sql;
+    const trace = traceSql('42', '1', excluded);
+    const from = q => { const i = q.indexOf('FROM transactionline tl'); return q.slice(i, q.indexOf('WHERE', i)); };
+    assert.equal(from(trace), from(main));
+    for (const part of ["t.posting = 'T'", "tl.mainline = 'F'", "tl.itemtype IN ('InvtPart', 'Assembly')", 'tl.item = 42']) {
+      assert.ok(main.includes(part) && trace.includes(part), part);
+    }
+  }
+});
+
+test('created-from details only give a work order customer for work orders', () => {
+  const { sourceFields, sourcesSql } = exported._test;
+  assert.deepEqual(sourceFields({ createdfrom: 'Work Order #WO1', sourcetype: 'WorkOrd', sourcecustomer: 'ACME', sourcecustomerid: '9' }), { createdfrom: 'Work Order #WO1', wocustomer: 'ACME', wocustomerid: 9 });
+  assert.deepEqual(sourceFields({ createdfrom: 'Sales Order #SO1', sourcetype: 'SalesOrd', sourcecustomer: 'ACME', sourcecustomerid: '9' }), { createdfrom: 'Sales Order #SO1', wocustomer: '', wocustomerid: 0 });
+  assert.equal(sourcesSql(['x']), '');
+  assert.ok(sourcesSql(['5', '6', '5']).includes('h.transaction IN (5,6)'));
+});
+
+test('drill-down warns when its lines do not add up to the main list', () => {
+  const { renderTrace } = exported._test;
+  const settings = { window: { start: new Date(2026, 4, 18), end: new Date(2026, 10, 18) }, excluded: [] };
+  const lines = [{ type: 'ItemShip', quantity: -10, iscogs: 'F', counted: 1, tranid: 'IF1' }];
+  assert.ok(renderTrace(lines, settings, '42', { fulfilled: 10, consumed: 0 }).includes('Matches the main list'));
+  assert.ok(renderTrace(lines, settings, '42', { fulfilled: 657, consumed: 0 }).includes('do not add up to the main list'));
 });

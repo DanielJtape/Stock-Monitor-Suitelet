@@ -143,54 +143,76 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
         AND t.trandate >= TO_DATE(?, 'YYYY-MM-DD') AND t.trandate <= TO_DATE(?, 'YYYY-MM-DD')
         AND t.posting = 'T' AND t.voided = 'F'
         AND tl.mainline = 'F'`;
-  const SOURCE_JOINS = `
-      LEFT JOIN transactionline hdr ON hdr.transaction = t.id AND hdr.mainline = 'T'
-      LEFT JOIN transaction wo ON wo.id = hdr.createdfrom AND wo.type = 'WorkOrd'`;
-
   /**
    * Which lines count as demand. Only stock leaving the location counts (negative quantity): the item line
    * on a fulfilment and component lines on completions and issues, never the assembly a completion adds.
    * Cost of goods sold lines repeat the item on fulfilments and are never counted. Excluded customers are
    * matched on the fulfilment's customer, and on the work order's customer for completions and issues.
+   * No joins: the work order customer is checked with a subquery, so a join can never drop lines.
    */
   function countedSql(customers) {
     const list = customers.join(',');
     return `tl.quantity < 0 AND NVL(tl.iscogs, 'F') = 'F'${customers.length ? `
         AND NOT (t.type = 'ItemShip' AND NVL(t.entity, 0) IN (${list}))
-        AND NOT (t.type IN ('WOCompl', 'WOIssue') AND NVL(wo.entity, 0) IN (${list}))` : ''}`;
+        AND NOT (t.type IN ('WOCompl', 'WOIssue') AND t.id IN (
+          SELECT h.transaction FROM transactionline h, transaction w
+          WHERE h.mainline = 'T' AND w.id = h.createdfrom AND w.type = 'WorkOrd' AND w.entity IN (${list})))` : ''}`;
   }
 
   /** SuiteQL for demand totals per item, location and transaction type. IDs are validated integers. */
-  function demandSql(locationIds, excluded = []) {
+  function demandSql(locationIds, excluded = [], itemId = '') {
     const locs = [...new Set(locationIds.map(String))].filter(id => RECORD_ID.test(id));
     const customers = excludedCustomers(excluded.join(','));
+    const item = RECORD_ID.test(String(itemId)) ? `
+        AND tl.item = ${itemId}` : '';
     return { locs, sql: `
       SELECT tl.item AS item, tl.location AS location, t.type AS type, SUM(-tl.quantity) AS qty
       FROM transactionline tl
-      JOIN transaction t ON t.id = tl.transaction${customers.length ? SOURCE_JOINS : ''}
+      JOIN transaction t ON t.id = tl.transaction
       WHERE ${BASE_FILTERS}
         AND tl.itemtype IN ('InvtPart', 'Assembly')
-        AND tl.location IN (${locs.join(',')})
+        AND tl.location IN (${locs.join(',')})${item}
         AND ${countedSql(customers)}
       GROUP BY tl.item, tl.location, t.type` };
   }
 
-  /** SuiteQL listing every candidate line for one item and location, flagged with whether it counts. */
+  /**
+   * SuiteQL listing every candidate line for one item and location, flagged with whether it counts.
+   * Same FROM and filters as demandSql (without the count rule), so it lists every line the total uses.
+   */
   function traceSql(itemId, locationId, excluded = []) {
     if (!RECORD_ID.test(String(itemId)) || !RECORD_ID.test(String(locationId))) throw Error('Invalid item or location');
     const customers = excludedCustomers(excluded.join(','));
     return `
       SELECT t.id AS tranid_internal, t.tranid AS tranid, t.type AS type, TO_CHAR(t.trandate, 'YYYY-MM-DD') AS trandate,
-             BUILTIN.DF(tl.item) AS itemname, BUILTIN.DF(hdr.createdfrom) AS createdfrom,
-             BUILTIN.DF(t.entity) AS customer, BUILTIN.DF(wo.entity) AS wocustomer,
-             NVL(t.entity, 0) AS customerid, NVL(wo.entity, 0) AS wocustomerid,
+             BUILTIN.DF(tl.item) AS itemname, BUILTIN.DF(t.entity) AS customer, NVL(t.entity, 0) AS customerid,
              tl.id AS lineid, tl.quantity AS quantity, NVL(tl.iscogs, 'F') AS iscogs,
              CASE WHEN ${countedSql(customers)} THEN 1 ELSE 0 END AS counted
       FROM transactionline tl
-      JOIN transaction t ON t.id = tl.transaction${SOURCE_JOINS}
+      JOIN transaction t ON t.id = tl.transaction
       WHERE ${BASE_FILTERS}
+        AND tl.itemtype IN ('InvtPart', 'Assembly')
         AND tl.item = ${itemId} AND tl.location = ${locationId}
       ORDER BY t.trandate, t.id, tl.id`;
+  }
+
+  /** Created-from record and work order customer for listed transactions (display only, looked up separately). */
+  function sourcesSql(transactionIds) {
+    const ids = [...new Set(transactionIds.map(String))].filter(id => RECORD_ID.test(id));
+    if (!ids.length) return '';
+    return `
+      SELECT h.transaction AS id, BUILTIN.DF(h.createdfrom) AS createdfrom, w.type AS sourcetype,
+             BUILTIN.DF(w.entity) AS sourcecustomer, NVL(w.entity, 0) AS sourcecustomerid
+      FROM transactionline h
+      LEFT JOIN transaction w ON w.id = h.createdfrom
+      WHERE h.mainline = 'T' AND h.transaction IN (${ids.join(',')})`;
+  }
+
+  /** Created-from details for a traced line; the work order customer only when the source is a work order. */
+  function sourceFields(src) {
+    if (!src) return { createdfrom: '', wocustomer: '', wocustomerid: 0 };
+    const isWo = src.sourcetype === 'WorkOrd';
+    return { createdfrom: src.createdfrom || '', wocustomer: isWo ? src.sourcecustomer || '' : '', wocustomerid: isWo ? num(src.sourcecustomerid) : 0 };
   }
 
   /** Why a traced line is or is not counted (explanation only; the query decides). */
@@ -207,9 +229,9 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
    * Demand per item|location in base units (see countedSql for which lines count).
    * Only posting, non-voided transactions count (picked/packed fulfilments are excluded).
    */
-  function demandByItem(locationIds, window, excluded) {
+  function demandByItem(locationIds, window, excluded, itemId) {
     const result = {};
-    const { locs, sql } = demandSql(locationIds, excluded);
+    const { locs, sql } = demandSql(locationIds, excluded, itemId);
     if (!locs.length) return result;
     const paged = query.runSuiteQLPaged({ query: sql, params: [ymd(window.start), ymd(window.end)], pageSize: 1000 });
     paged.pageRanges.forEach(range => {
@@ -241,7 +263,7 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   const TYPE_LABEL = { ItemShip: 'Item Fulfilment', WOCompl: 'WO Completion', WOIssue: 'WO Issue' };
 
   /** Drill-down page body: every candidate line for one item, with what was counted and why. */
-  function renderTrace(lines, settings, itemId) {
+  function renderTrace(lines, settings, itemId, main, sourcesFailed) {
     const name = lines.length ? lines[0].itemname : `Item ${itemId}`;
     let fulfilled = 0, consumed = 0, skipped = 0;
     const body = lines.map(l => {
@@ -262,10 +284,15 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
   table.usm td.usm-num{text-align:right}
   tr.usm-skip td{color:#999}
   .usm-note{margin:6px 0 10px;font-size:13px}
+  .usm-warn{margin:6px 0 10px;padding:6px 10px;background:#fff3cd;border:1px solid #e0b000;font-size:13px}
 </style>
 <div class="usm-note"><b>${esc(name)}</b>: transaction lines at this location from ${esc(ymd(settings.window.start))} to ${esc(ymd(settings.window.end))}.
  Counted: Fulfilled <b>${esc(fmt(fulfilled, 2))}</b>, WO Consumed <b>${esc(fmt(consumed, 2))}</b>. ${esc(skipped)} line${skipped === 1 ? '' : 's'} shown in grey ${skipped === 1 ? 'is' : 'are'} not counted.
  Line quantity is NetSuite's transaction line quantity (negative = stock out).</div>
+${main && (Math.abs(num(main.fulfilled) - fulfilled) > 0.0001 || Math.abs(num(main.consumed) - consumed) > 0.0001)
+    ? `<div class="usm-warn">These lines do not add up to the main list (Fulfilled ${esc(fmt(main.fulfilled, 2))}, WO Consumed ${esc(fmt(main.consumed, 2))}). Please report this.</div>`
+    : `<div class="usm-note">Matches the main list.</div>`}
+${sourcesFailed ? '<div class="usm-warn">Created From and work order customers could not be read; the figures are unaffected.</div>' : ''}
 <div class="usm-wrap"><table class="usm"><thead><tr><th>Date</th><th>Type</th><th>Number</th><th>Created From</th><th>Customer</th><th>Line Quantity</th><th>COGS Line</th><th>Counted</th><th>Reason</th></tr></thead>
 <tbody>${body}</tbody></table></div>`;
   }
@@ -422,12 +449,25 @@ apply();})();
       + `&custpage_months=${settings.months}&custpage_exclude=${encodeURIComponent(settings.excluded.join(','))}`;
 
     if (settings.traceItem && settings.traceLocation) {
+      const dates = [ymd(settings.window.start), ymd(settings.window.end)];
       const lines = [];
-      const paged = query.runSuiteQLPaged({ query: traceSql(settings.traceItem, settings.traceLocation, settings.excluded), params: [ymd(settings.window.start), ymd(settings.window.end)], pageSize: 1000 });
+      const paged = query.runSuiteQLPaged({ query: traceSql(settings.traceItem, settings.traceLocation, settings.excluded), params: dates, pageSize: 1000 });
       paged.pageRanges.forEach(range => paged.fetch({ index: range.index }).data.asMappedResults().forEach(l => lines.push(l)));
+      // Display-only details; a failure here leaves those cells blank but never changes the figures.
+      const sources = {};
+      const ids = [...new Set(lines.map(l => String(l.tranid_internal)))];
+      for (let i = 0; i < ids.length; i += 900) {
+        try {
+          const sql = sourcesSql(ids.slice(i, i + 900));
+          if (sql) query.runSuiteQL({ query: sql }).asMappedResults().forEach(x => { sources[String(x.id)] = x; });
+        } catch (e) { sources.failed = true; }
+      }
+      lines.forEach(l => Object.assign(l, sourceFields(sources[String(l.tranid_internal)])));
+      // The main list's figures for this item, from the same aggregate query, to prove the two agree.
+      const main = demandByItem([settings.traceLocation], settings.window, settings.excluded, settings.traceItem)[`${settings.traceItem}|${settings.traceLocation}`];
       const traceForm = serverWidget.createForm({ title: 'UK Stock Monitor: demand lines' });
       const out = traceForm.addField({ id: 'custpage_trace_html', type: serverWidget.FieldType.INLINEHTML, label: 'Lines' });
-      out.defaultValue = renderTrace(lines, settings, settings.traceItem);
+      out.defaultValue = renderTrace(lines, settings, settings.traceItem, main || { fulfilled: 0, consumed: 0 }, Boolean(sources.failed));
       response.writePage(traceForm);
       return;
     }
@@ -465,5 +505,5 @@ apply();})();
     response.writePage(form);
   }
 
-  return { onRequest, _test: { traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
+  return { onRequest, _test: { sourcesSql, sourceFields, traceSql, lineReason, renderTrace, countedSql, excludedCustomers, demandSql, hiddenColumns, colKey, COLUMNS, renderTable, coverStatus, demandWindow, qtyToReplenish, evaluate, percent, toCsv, clampInt } };
 });
