@@ -274,6 +274,15 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
 
   const TYPE_LABEL = { ItemShip: 'Item Fulfilment', WOCompl: 'WO Completion', WOIssue: 'WO Issue' };
 
+  /**
+   * Sizes the table box to end at the bottom of the window, so the filters, buttons and notes above it stay on
+   * screen and only the table scrolls (both ways) under its sticky column headings. Never below 300px.
+   */
+  const FIT_SCRIPT = `(function(){var w=document.querySelector('.usm-wrap');if(!w)return;
+function fit(){var top=w.getBoundingClientRect().top+(window.pageYOffset||document.documentElement.scrollTop||0);
+w.style.maxHeight=Math.max(300,Math.floor(window.innerHeight-top-24))+'px';}
+fit();window.addEventListener('resize',fit);window.addEventListener('load',fit);})();`;
+
   const TRACE_FILTERS = [
     { key: '', value: '', label: 'All' },
     { key: 'fulfilled', value: 'ItemShip', label: 'Item Fulfilment' },
@@ -297,9 +306,9 @@ define(['N/ui/serverWidget', 'N/search', 'N/query', 'N/runtime', 'N/redirect', '
     }).join('');
     return `
 <style>
-  .usm-wrap{overflow-x:auto;font-size:12px}
+  .usm-wrap{overflow:auto;max-height:75vh;font-size:12px;border-bottom:1px solid #ddd}
   table.usm{border-collapse:collapse}
-  table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;white-space:nowrap}
+  table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;white-space:nowrap;position:sticky;top:0;z-index:2;box-shadow:0 1px 0 #ccc}
   table.usm td{padding:4px 8px;border-bottom:1px solid #eee;white-space:nowrap}
   table.usm td.usm-num{text-align:right}
   tr.usm-skip td{color:#999}
@@ -328,6 +337,7 @@ function apply(){var types=sel.value?sel.value.split(','):null,shown=0,total=0;
 row.style.display=ok?'':'none';if(ok){shown++;total+=parseFloat(row.getAttribute('data-qty'))||0;}});
 info.textContent='Showing '+shown+' of '+t.tBodies[0].rows.length+' lines; counted quantity shown: '+total.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});}
 sel.addEventListener('change',apply);only.addEventListener('change',apply);apply();})();
+${FIT_SCRIPT}
 </script>`;
   }
 
@@ -387,10 +397,10 @@ sel.addEventListener('change',apply);only.addEventListener('change',apply);apply
     }).join('')}</tr>`).join('');
     return `
 <style>
-  .usm-wrap{overflow-x:auto;font-size:12px}
+  .usm-wrap{overflow:auto;max-height:75vh;font-size:12px;border-bottom:1px solid #ddd}
   .usm-note{margin:6px 0 10px;color:#555}
   table.usm{border-collapse:collapse;width:100%}
-  table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;cursor:pointer;white-space:nowrap;position:sticky;top:0}
+  table.usm th{background:#e5e5e5;text-transform:uppercase;font-weight:normal;font-size:11px;padding:6px;text-align:left;cursor:pointer;white-space:nowrap;position:sticky;top:0;z-index:2;box-shadow:0 1px 0 #ccc}
   table.usm td{padding:4px 6px;border-bottom:1px solid #eee;white-space:nowrap}
   table.usm td.usm-num{text-align:right}
   tr.usm-special td,tr.usm-special a{background:#ff9900;color:#c00}
@@ -443,6 +453,7 @@ var order=current(),from=order.indexOf(dragged);order.splice(from,1);var to=orde
 var rect=th.getBoundingClientRect();if(e.clientX>rect.left+rect.width/2)to++;order.splice(to,0,dragged);arrange(order);});});
 var saved='';try{saved=window.localStorage.getItem(KEY)||'';}catch(e){}
 if(saved)arrange(saved.split(','));})();
+${FIT_SCRIPT}
 (function(){var KEY='usm-hidden-columns',box=document.getElementById('usm-cols-box'),btn=document.getElementById('usm-cols-btn'),style=document.getElementById('usm-hide');
 if(!box||!btn||!style)return;var inputs=[].slice.call(box.querySelectorAll('input[data-key]'));var hidden=[];
 try{hidden=(window.localStorage.getItem(KEY)||'').split(',').filter(Boolean);}catch(e){}
